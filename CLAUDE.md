@@ -19,6 +19,8 @@ docs/
     governance.md                   # Who controls the agents and their config
     repo-readiness.md               # Test coverage baseline and readiness criteria
     code-review.md                  # How agents review code, security sub-agents
+    architectural-invariants.md     # Enforcing things that must always be true
+  landscape.md                      # Survey of AI code review tools (time-sensitive)
   experiments/                      # Logs/results from practical experiments
 ```
 
@@ -38,3 +40,7 @@ docs/
 - **Threat priority order:** External prompt injection > insider/compromised creds > agent drift > supply chain
 - **Scope:** All repos in the konflux-ci org (heterogeneous — Go, React, Tekton, Python, shell)
 - **Code generation is considered a solved problem.** The hard problems are review, intent, governance, and security.
+- **Trust derives from repository permissions, not agent identity.** No agent trusts another based on who produced the output.
+- **CODEOWNERS files are always human-owned.** Agents cannot modify their own guardrails.
+- **The repo is the coordinator.** No coordinator agent — branch protection, CODEOWNERS, and status checks are the coordination layer.
+- **The konflux-ci/architecture repo** is a key source of architectural invariants that agents should enforce.

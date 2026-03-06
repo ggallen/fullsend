@@ -93,6 +93,12 @@ It's slow and hard to detect. Each individual change looks fine. The degradation
 - **Style enforcement** — linters and formatters are cheap guardrails against aesthetic drift
 - **Architectural fitness functions** — automated checks that verify the codebase still conforms to architectural constraints (dependency rules, API contracts, etc.)
 
+### Grounding drift detection in architectural invariants
+
+Drift becomes detectable when you have a declared baseline to measure against. The [konflux-ci/architecture](https://github.com/konflux-ci/architecture) repo — with its 60+ ADRs and per-service architecture docs — provides that baseline. See [architectural-invariants.md](architectural-invariants.md) for a full treatment of how agents can consume and enforce these constraints, both at PR time and through periodic drift detection scans.
+
+Drift from security-relevant invariants (RBAC model, trusted task model, build provenance chain) is a security concern, not just a quality concern.
+
 ### Open questions
 
 - How do we define "drift" precisely enough to detect it?

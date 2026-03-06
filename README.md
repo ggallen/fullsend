@@ -19,6 +19,7 @@ This is not a product spec. It's an evolving exploration of a hard problem space
   - [Governance](docs/problems/governance.md) — Who controls the agents and their configuration?
   - [Repo Readiness](docs/problems/repo-readiness.md) — Test coverage, CI/CD maturity, what's needed before agents can be trusted
   - [Code Review](docs/problems/code-review.md) — How agents review code, including security-focused sub-agents
+  - [Architectural Invariants](docs/problems/architectural-invariants.md) — Enforcing things that must always be true, grounded in the existing architecture repo
 - **[docs/landscape.md](docs/landscape.md)** — Survey of existing AI code review tools and how they relate to our goals (time-sensitive — check the date)
 - **[docs/experiments/](docs/experiments/)** — Logs and results from trying things in practice
 
