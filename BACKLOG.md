@@ -5,3 +5,4 @@
 - [ ] Explore [Gastown](https://github.com/steveyegge/gastown) and evaluate relevance to fullsend's problem areas
 - [ ] Explore [OpenHands](https://github.com/all-hands-ai/openhands) and evaluate relevance to fullsend's problem areas
 - [ ] Explore [ambient-code/platform](https://github.com/ambient-code/platform) and evaluate relevance to fullsend's problem areas
+- [ ] Review [latent.space/p/reivews-dead](https://www.latent.space/p/reviews-dead) for any insights applicable to the project here
