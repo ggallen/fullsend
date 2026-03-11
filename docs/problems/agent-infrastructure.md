@@ -1,0 +1,81 @@
+# Agent Infrastructure
+
+Where do agents run, what resources do they get, and do we adopt a 3rd party solution, use existing internal systems, or build our own?
+
+This document explores the infrastructure layer that executes agents and provides them with the compute, tooling, and isolation they need to do their work. It is distinct from [agent-architecture.md](agent-architecture.md) (which defines *what* agents do and how they coordinate via the repo) and [governance.md](governance.md) (which defines *who* controls policy). Here we focus on *where* and *how* agents execute.
+
+## Why this matters
+
+Agents need:
+
+- **Compute** — to run models, run tools (clones, linters, tests), and process context
+- **Isolation** — so one compromised or buggy agent doesn't affect others; see [security-threat-model.md](security-threat-model.md) (agent-to-agent injection, lateral movement)
+- **Resources** — access to repos, CI artifacts, intent sources, and possibly internal APIs in a controlled way
+- **Observability** — logs, traces, and auditability so we can attribute actions and debug failures
+
+The choice of platform affects cost, lock-in, compliance, integration with existing konflux-ci systems, and how we scale (per-repo vs shared agents — see agent-architecture open questions).
+
+## The three directions
+
+### Adopt a 3rd party solution
+
+Use a commercial or open-source platform that provides agent runtime, orchestration, and often model access (e.g. Cursor-like workflows, CodeRabbit-style review infrastructure, or generic agent platforms).
+
+**Pros:** Faster to value, maintained by vendors, often includes model orchestration and tooling out of the box.
+
+**Cons:** Vendor lock-in, data residency and compliance constraints, may not align with our zero-trust and repo-as-coordinator model, cost at scale, and we may still need to integrate with internal systems (GitHub, policy repos, internal APIs).
+
+**Open questions:**
+
+- Which vendors support our constraints (no coordinator agent, status-check–driven coordination, CODEOWNERS as authority)?
+- What data leaves our boundary, and is that acceptable for konflux-ci?
+- Can we run their stack in our environment (e.g. self-hosted) or is it only SaaS?
+
+### Use existing internal solutions
+
+Leverage infrastructure konflux-ci or the broader org already runs — e.g. CI runners, internal Kubernetes, shared platforms — and run agents as workloads on that infrastructure.
+
+**Pros:** No new vendor, data stays internal, consistent with existing operational and security practices, possible reuse of identity and secrets management.
+
+**Cons:** Internal platforms may not be designed for long-running or bursty agent workloads; we may need to add isolation, scaling, and tooling; ownership and SLOs may be unclear.
+
+**Open questions:**
+
+- What internal platforms exist that could host agent workloads (e.g. OpenShift, internal CI, shared Kube)?
+- What would we need to add (sandboxing, resource limits, agent-specific tooling)?
+- Who operates and pays for the capacity?
+
+### Build our own
+
+Design and operate dedicated agent infrastructure: runner pool, sandboxing, tool access, and integration with GitHub and policy repos.
+
+**Pros:** Full control over security model, isolation, and integration; no vendor lock-in; can align exactly with repo-as-coordinator and zero-trust principles.
+
+**Cons:** High build and operational cost; we own reliability, scaling, and upgrades; may duplicate what vendors or internal platforms already provide.
+
+**Open questions:**
+
+- What is the minimum viable agent runtime (e.g. “run one review agent in a container with repo access and status-check API”)?
+- How does it integrate with existing konflux-ci CI/CD (e.g. Tekton, task runner, build-definitions)?
+- Can we iterate with a thin custom layer on top of internal or 3rd party compute and only “build our own” where we must?
+
+## Hybrid and incremental options
+
+- **Thin orchestration layer** — We build a small layer that triggers agents, gathers results, and posts status checks; the actual compute is 3rd party or internal. This keeps coordination logic in our control while deferring platform choice.
+- **Phase by phase** — Start with a 3rd party or internal option for early experiments (e.g. review agents only); decide later whether to replace or extend with custom infrastructure as autonomy expands.
+- **By agent type** — Triage and review agents might run on one platform (e.g. event-driven, short-lived); implementation agents that need more tooling and longer runs might need a different environment.
+
+## Relationship to other problem areas
+
+- **Agent architecture** — Instance topology (per-repo vs shared) and “local vs remote” for pre-PR review depend on what infrastructure we have. Infrastructure enables or constrains those choices.
+- **Security threat model** — Isolation and “separate execution environments” are implemented by this layer. Supply chain (what base images and dependencies the runtime uses) also lives here.
+- **Governance** — Policy may be applied at runtime by agents reading from a policy repo; infrastructure determines where that runtime runs and how it accesses policy.
+- **Repo readiness** — Repos need reliable CI and signals; agent infrastructure may consume or depend on the same CI (e.g. for “run tests” or “run linters”) and should not conflict with it.
+
+## Open questions
+
+- What is the right level of isolation per agent (process, container, microVM, separate cluster)?
+- How do we provide agents with “resources to do their work” (clone, tools, APIs) without over-privileging them or creating a single high-value target?
+- Do we need a dedicated “agent runner” image or environment (similar in spirit to the existing [task runner](https://github.com/konflux-ci/architecture/blob/main/ADR/0046-common-task-runner-image.md) for Tekton) with a known, auditable tool set?
+- How do we compare 3rd party vs internal vs build-our-own on concrete criteria: cost, time to first agent, compliance, and alignment with our security and coordination model?
+- Who in the org would own and operate agent infrastructure, and how does that align with existing platform or CI ownership?
