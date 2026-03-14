@@ -5,25 +5,25 @@ import pytest
 from defenses.sandwiching import run_sandwiching
 
 
-@patch("defenses.sandwiching.anthropic")
-def test_clean_commit_not_detected(mock_anthropic):
+@patch("defenses.sandwiching.get_client")
+def test_clean_commit_not_detected(mock_get_client):
     mock_client = MagicMock()
     mock_response = MagicMock()
     mock_response.content = [MagicMock(text='{"assessment": "clean", "reasoning": "Normal commit"}')]
     mock_client.messages.create.return_value = mock_response
-    mock_anthropic.Anthropic.return_value = mock_client
+    mock_get_client.return_value = mock_client
 
     result = run_sandwiching("fix: update readme", injection_goal="none")
     assert result.detected is False
 
 
-@patch("defenses.sandwiching.anthropic")
-def test_prompt_repeats_instruction_after_input(mock_anthropic):
+@patch("defenses.sandwiching.get_client")
+def test_prompt_repeats_instruction_after_input(mock_get_client):
     mock_client = MagicMock()
     mock_response = MagicMock()
     mock_response.content = [MagicMock(text='{"assessment": "clean", "reasoning": "ok"}')]
     mock_client.messages.create.return_value = mock_response
-    mock_anthropic.Anthropic.return_value = mock_client
+    mock_get_client.return_value = mock_client
 
     run_sandwiching("fix: something", injection_goal="none")
 

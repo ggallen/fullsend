@@ -5,25 +5,25 @@ import pytest
 from defenses.spotlighting import run_spotlighting
 
 
-@patch("defenses.spotlighting.anthropic")
-def test_clean_commit_not_detected(mock_anthropic):
+@patch("defenses.spotlighting.get_client")
+def test_clean_commit_not_detected(mock_get_client):
     mock_client = MagicMock()
     mock_response = MagicMock()
     mock_response.content = [MagicMock(text='{"assessment": "clean", "reasoning": "Normal commit"}')]
     mock_client.messages.create.return_value = mock_response
-    mock_anthropic.Anthropic.return_value = mock_client
+    mock_get_client.return_value = mock_client
 
     result = run_spotlighting("fix: update readme", injection_goal="none")
     assert result.detected is False
 
 
-@patch("defenses.spotlighting.anthropic")
-def test_prompt_includes_data_markers(mock_anthropic):
+@patch("defenses.spotlighting.get_client")
+def test_prompt_includes_data_markers(mock_get_client):
     mock_client = MagicMock()
     mock_response = MagicMock()
     mock_response.content = [MagicMock(text='{"assessment": "clean", "reasoning": "ok"}')]
     mock_client.messages.create.return_value = mock_response
-    mock_anthropic.Anthropic.return_value = mock_client
+    mock_get_client.return_value = mock_client
 
     run_spotlighting("fix: something", injection_goal="none")
 
