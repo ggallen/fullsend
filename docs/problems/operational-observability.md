@@ -89,7 +89,9 @@ Traditional software systems become debuggable through a combination of structur
 
 ### Structured traces
 
-Every agent invocation should produce a structured trace capturing the full lifecycle: input context, system prompt (version-pinned), each LLM call (prompt, completion, model, token usage, latency), each tool call (operation, timing, result), the decision output, and metadata (repo, PR, agent role, instruction version, timestamp).
+Every agent invocation should produce a structured trace capturing the full lifecycle: input references, system prompt (version-pinned), each LLM call (prompt, completion, model, token usage, latency), each tool call (operation, timing, result), the decision output, and metadata (repo, PR, agent role, instruction version, timestamp).
+
+A key insight: much of an agent's input context is already stored durably in existing systems. The PR diff lives in GitHub. The codebase state is a git SHA. The issue description is on the issue tracker. Traces should reference these by pointer (repo + SHA, PR URL, issue URL) rather than duplicating them. The novel data that traces must capture is what those existing systems *don't* store: the LLM interactions themselves — the prompts assembled from that context, the completions returned, the tool calls made, and the reasoning that led to the decision. This distinction matters for storage cost, data sensitivity, and replay: to reconstruct an agent run, you combine the trace's LLM interaction log with the context retrievable from git and GitHub at the recorded references.
 
 Traces need to be correlatable. A PR review workflow involving five agents needs a session-level view that shows all five traces, their ordering, and how their outputs composed into the final decision. This is the LLM equivalent of distributed tracing in microservices — but with the additional challenge that each "span" contains non-deterministic reasoning, not just timing and status.
 
@@ -183,7 +185,7 @@ This works for early experimentation when the volume is low and the operators ar
 
 ## Open questions
 
-- What is the right level of trace granularity? Full prompt/completion pairs provide maximum debuggability but are expensive to store and may contain sensitive content (code snippets, issue descriptions, user data). Is there a middle ground — e.g., capturing token counts and decision summaries by default, with full traces available on demand?
+- What is the right level of trace granularity? Input context is largely already stored in git and GitHub, so traces can reference it by pointer. But full prompt/completion pairs — the novel data — are expensive to store and may contain sensitive content. Is there a middle ground — e.g., capturing token counts and decision summaries by default, with full prompt/completion pairs available on demand?
 - How should trace access be controlled? Traces contain the full reasoning of review agents — an attacker who can read traces can learn exactly what agents check for and craft bypasses. But restricting trace access undermines the transparency that builds community trust. How do we balance security and openness?
 - What retention policy applies to traces? Indefinite retention supports audit requirements but increases storage cost and data sensitivity exposure. Time-bounded retention (e.g., 90 days) limits exposure but may lose traces needed for incident investigation.
 - How do we measure "is the system getting better"? What metrics constitute a meaningful quality signal for an autonomous software factory? Merge revert rate? Human override rate? Time-to-review? Cost per decision? Some composite score? The choice of metric shapes what gets optimized.
