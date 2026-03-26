@@ -33,7 +33,7 @@ Run `gh repo view` to confirm you have access and note the repo's full `owner/na
 Before writing anything, search for duplicates and related issues:
 
 ```bash
-gh issue list --repo <owner/name> --state open --search "<key terms>"
+gh issue list --repo <owner/name> --state all --search "<key terms>"
 ```
 
 Try at least two different search queries using different terms from the user's
