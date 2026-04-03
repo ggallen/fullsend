@@ -16,8 +16,8 @@ jobs:
     if: |
       github.event_name == 'issues' ||
       (github.event_name == 'issue_comment' && (
-        startsWith(trim(github.event.comment.body || ''), '/triage ') ||
-        trim(github.event.comment.body || '') == '/triage'
+        startsWith(github.event.comment.body || '', '/triage ') ||
+        (github.event.comment.body || '') == '/triage'
       ))
     runs-on: ubuntu-latest
     permissions:

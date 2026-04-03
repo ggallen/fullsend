@@ -20,8 +20,8 @@ jobs:
     if: |
       (github.event_name == 'issues' && github.event.action == 'labeled' && github.event.label.name == 'ready-for-review') ||
       (github.event_name == 'issue_comment' && (
-        startsWith(trim(github.event.comment.body || ''), '/review ') ||
-        trim(github.event.comment.body || '') == '/review'
+        startsWith(github.event.comment.body || '', '/review ') ||
+        (github.event.comment.body || '') == '/review'
       )) ||
       github.event_name == 'pull_request'
     runs-on: ubuntu-latest

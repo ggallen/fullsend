@@ -16,8 +16,8 @@ jobs:
     if: |
       (github.event_name == 'issues' && github.event.action == 'labeled' && github.event.label.name == 'ready-to-implement') ||
       (github.event_name == 'issue_comment' && (
-        startsWith(trim(github.event.comment.body || ''), '/implement ') ||
-        trim(github.event.comment.body || '') == '/implement'
+        startsWith(github.event.comment.body || '', '/implement ') ||
+        (github.event.comment.body || '') == '/implement'
       ))
     runs-on: ubuntu-latest
     permissions:
