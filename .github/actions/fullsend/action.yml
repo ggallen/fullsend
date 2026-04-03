@@ -1,0 +1,69 @@
+name: Fullsend
+description: >-
+  Install fullsend-cli and run the stage entrypoint for the given SCM (default github). Does not
+  read agent configuration from the repository; configure the job environment or CLI as needed.
+
+branding:
+  icon: zap
+  color: purple
+
+inputs:
+  stage:
+    description: Pipeline stage passed to fullsend (e.g. triage, implementation, review).
+    required: true
+  scm:
+    description: Value for fullsend --scm (optional; defaults to github).
+    required: false
+    default: github
+  version:
+    description: >-
+      Release tag for https://github.com/fullsend-ai/fullsend/releases/download/<version>/…,
+      or latest for …/releases/latest/download/….
+    default: latest
+
+runs:
+  using: composite
+  steps:
+    - name: Install fullsend CLI
+      shell: bash
+      env:
+        VERSION: ${{ inputs.version }}
+        RUNNER_OS: ${{ runner.os }}
+        RUNNER_ARCH: ${{ runner.arch }}
+      run: |
+        set -euo pipefail
+        os="$(echo "${RUNNER_OS}" | tr '[:upper:]' '[:lower:]')"
+        case "${os}" in
+          macos) os=darwin ;;
+        esac
+        arch="$(echo "${RUNNER_ARCH}" | tr '[:upper:]' '[:lower:]')"
+        case "${arch}" in
+          x64) arch=amd64 ;;
+          x86) arch=386 ;;
+          arm) arch=arm ;;
+        esac
+        ASSET_NAME="fullsend-cli-${os}-${arch}.tgz"
+        VERSION="$(printf '%s' "${VERSION:-latest}" | tr -d '[:space:]')"
+        VERSION="${VERSION:-latest}"
+        if [[ "${VERSION}" == "latest" ]]; then
+          # Note the extra /download/ in the latest redirect path
+          BASE_URL="https://github.com/fullsend-ai/fullsend/releases/latest/download"
+        else
+          BASE_URL="https://github.com/fullsend-ai/fullsend/releases/download/${VERSION}"
+        fi
+        URL="${BASE_URL}/${ASSET_NAME}"
+
+        echo "Downloading from: ${URL}"
+        curl -fsSL "$URL" -o /tmp/${ASSET_NAME}
+        mkdir -p "${RUNNER_TEMP}/fullsend"
+        tar -xzf /tmp/${ASSET_NAME} -C "${RUNNER_TEMP}/fullsend"
+        echo "${RUNNER_TEMP}/fullsend" >> "${GITHUB_PATH}"
+
+    - name: Run fullsend
+      shell: bash
+      env:
+        SCM: ${{ inputs.scm || 'github' }}
+        STAGE: ${{ inputs.stage }}
+      run: |
+        set -euo pipefail
+        fullsend entrypoint "${STAGE}" --scm "${SCM}"
