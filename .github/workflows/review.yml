@@ -41,9 +41,9 @@ jobs:
         env:
           STAGE_PREFIX: REVIEW_
           REVIEW_FULLSEND_REVIEW_BOT_TOKEN: ${{ secrets.FULLSEND_REVIEW_BOT_TOKEN }}
-        run: bash dispatch/github/scripts/setup-agent-env.sh
+        run: bash .github/scripts/setup-agent-env.sh
 
       - name: Run review agent(s)
-        uses: ./dispatch/github/actions/fullsend
+        uses: ./.github/actions/fullsend
         with:
           stage: review

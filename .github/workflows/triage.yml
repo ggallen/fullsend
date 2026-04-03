@@ -35,9 +35,9 @@ jobs:
         env:
           STAGE_PREFIX: TRIAGE_
           TRIAGE_FULLSEND_TRIAGE_BOT_TOKEN: ${{ secrets.FULLSEND_TRIAGE_BOT_TOKEN }}
-        run: bash dispatch/github/scripts/setup-agent-env.sh
+        run: bash .github/scripts/setup-agent-env.sh
 
       - name: Run triage agent(s)
-        uses: ./dispatch/github/actions/fullsend
+        uses: ./.github/actions/fullsend
         with:
           stage: triage
