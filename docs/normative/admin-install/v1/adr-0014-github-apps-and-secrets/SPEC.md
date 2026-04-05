@@ -1,6 +1,6 @@
 # SPEC: GitHub Apps and `.fullsend` credentials (admin install v1)
 
-**Version:** 1  
+**Version:** 1
 **Scope:** Behavior implemented by `fullsend admin install` for GitHub-hosted orgs: GitHub App identity per agent **role**, manifest-based creation, org installation checks, and storage of app credentials in the org config repository.
 
 **Normative references (code):** `internal/appsetup`, `internal/layers/secrets.go`, `internal/cli/admin.go`, `internal/config`, `internal/forge/github/types.go`, `internal/forge/forge.go` (`ConfigRepoName`).
