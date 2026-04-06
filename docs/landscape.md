@@ -139,6 +139,16 @@ Kubernetes-native pattern: custom resources and an operator drive Jobs or Pods t
 
 **Relevance to fullsend:** Useful as a **wiring reference** for running agents on Kubernetes. For **why it is a weak match** to our reliability, security, and scale goals—extra controller, UI/chat-first vs SCM–event automation, friction with Tekton-style pipelines, shared-workspace injection risk, limits of plain-Pod execution for tasks like image builds—see [agent-infrastructure.md](problems/agent-infrastructure.md#ambient-code-platform-acp).
 
+## Kubernetes-native agent hosting (SIG)
+
+### Kubernetes SIG Agent Sandbox
+
+[GitHub](https://github.com/kubernetes-sigs/agent-sandbox) | [Project site](https://agent-sandbox.sigs.k8s.io)
+
+A Kubernetes SIG project: controllers and **Custom Resources** for **isolated, stateful, singleton** agent workloads (durable pod-per-session style runtimes), not ephemeral CI-shaped jobs.
+
+**Relevance to fullsend:** Useful reference for long-lived, cluster-hosted agent sessions. For task-scoped automation, the CR-centric lifecycle is a poor fit next to [Tekton](https://tekton.dev/)–style pipelines **triggered from SCM events** (pull requests, pushes, and similar), and the project does not currently ship observability primitives aligned with per-task attribution and audit needs — see [agent-infrastructure.md](problems/agent-infrastructure.md#kubernetes-sig-agent-sandbox).
+
 ## Agent connectivity and protocol gateways
 
 A separate category from review tools and end-to-end orchestrators: **proxies and gateways** that sit on the paths agents already use to reach models, tools, and (in some designs) other agents. They standardize protocols and centralize policy instead of replacing git-mediated coordination.
