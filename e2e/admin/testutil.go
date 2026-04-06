@@ -43,6 +43,7 @@ var defaultRoles = []string{"fullsend", "triage", "coder", "review"}
 // envConfig holds required environment configuration.
 type envConfig struct {
 	sessionFile string
+	password    string
 	lockTimeout time.Duration
 }
 
@@ -60,6 +61,8 @@ func loadEnvConfig(t *testing.T) envConfig {
 		t.Fatalf("E2E_GITHUB_SESSION_FILE %q does not exist: %v", sessionFile, err)
 	}
 
+	password := os.Getenv("E2E_GITHUB_PASSWORD")
+
 	lockTimeout := defaultLockTimeout
 	if v := os.Getenv("E2E_LOCK_TIMEOUT"); v != "" {
 		d, err := time.ParseDuration(v)
@@ -71,6 +74,7 @@ func loadEnvConfig(t *testing.T) envConfig {
 
 	return envConfig{
 		sessionFile: sessionFile,
+		password:    password,
 		lockTimeout: lockTimeout,
 	}
 }

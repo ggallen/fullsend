@@ -33,6 +33,64 @@ func verifyGitHubSession(page playwright.Page, screenshotDir string, logf func(s
 	return nil
 }
 
+// handleSudoIfPresent detects GitHub's "Confirm access" sudo page and
+// enters the password to proceed. GitHub requires sudo confirmation when
+// accessing sensitive settings pages (token management, app settings)
+// even with a valid session. Returns true if sudo was handled.
+func handleSudoIfPresent(page playwright.Page, password, screenshotDir string, logf func(string, ...any)) (bool, error) {
+	pageTitle, _ := page.Title()
+	if !strings.Contains(pageTitle, "Confirm access") && !strings.Contains(pageTitle, "Sudo") {
+		return false, nil
+	}
+
+	logf("[sudo] Detected sudo confirmation page (title: %s)", pageTitle)
+
+	if password == "" {
+		saveDebugScreenshot(page, screenshotDir, "sudo-no-password", logf)
+		return false, fmt.Errorf("sudo confirmation required but no password available — set E2E_GITHUB_PASSWORD")
+	}
+
+	// GitHub's sudo form uses #sudo_password for the password field.
+	passwordInput := page.Locator("#sudo_password")
+	if err := passwordInput.WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: playwright.Float(5000),
+	}); err != nil {
+		saveDebugScreenshot(page, screenshotDir, "sudo-password-field-missing", logf)
+		return false, fmt.Errorf("sudo password field not found: %w", err)
+	}
+
+	if err := passwordInput.Fill(password); err != nil {
+		return false, fmt.Errorf("filling sudo password: %w", err)
+	}
+
+	// Click the confirm button.
+	confirmBtn := page.Locator("button[type='submit']:has-text('Confirm'), button[type='submit']:has-text('Confirm password'), button[type='submit']")
+	if err := confirmBtn.First().Click(playwright.LocatorClickOptions{
+		Timeout: playwright.Float(5000),
+	}); err != nil {
+		saveDebugScreenshot(page, screenshotDir, "sudo-confirm-click-failed", logf)
+		return false, fmt.Errorf("clicking sudo confirm button: %w", err)
+	}
+
+	// Wait for the page to navigate away from the sudo page.
+	if err := page.WaitForLoadState(playwright.PageWaitForLoadStateOptions{
+		State: playwright.LoadStateDomcontentloaded,
+	}); err != nil {
+		return false, fmt.Errorf("waiting for post-sudo navigation: %w", err)
+	}
+
+	// Verify we're past sudo.
+	newTitle, _ := page.Title()
+	if strings.Contains(newTitle, "Confirm access") || strings.Contains(newTitle, "Sudo") {
+		saveDebugScreenshot(page, screenshotDir, "sudo-still-on-page", logf)
+		return false, fmt.Errorf("sudo confirmation failed — still on confirmation page (title: %s)", newTitle)
+	}
+
+	logf("[sudo] Sudo confirmation succeeded")
+	return true, nil
+}
+
 // saveDebugScreenshot saves a screenshot to dir for debugging.
 func saveDebugScreenshot(page playwright.Page, dir, name string, logf func(string, ...any)) {
 	path := filepath.Join(dir, fmt.Sprintf("e2e-debug-%s.png", name))

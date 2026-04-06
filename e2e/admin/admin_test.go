@@ -82,7 +82,7 @@ func setupE2ETest(t *testing.T) *e2eEnv {
 	// Generate a PAT for API access.
 	patNote := fmt.Sprintf("fullsend-e2e-%d", time.Now().Unix())
 	t.Logf("Creating PAT: %s", patNote)
-	token, err := createPAT(page, patNote, t.Logf)
+	token, err := createPAT(page, patNote, cfg.password, screenshotDir, t.Logf)
 	require.NoError(t, err, "creating PAT")
 	t.Cleanup(func() {
 		t.Log("Deleting PAT...")
@@ -241,7 +241,7 @@ func runFullInstall(t *testing.T, env *e2eEnv) ([]layers.AgentCredentials, *conf
 	// This mirrors the real CLI flow: the user creates a fine-grained PAT
 	// scoped to .fullsend with actions:write, then pastes it back.
 	t.Log("Creating fine-grained dispatch PAT via Playwright...")
-	dispatchToken, err := createDispatchPAT(env.page, testOrg, env.screenshotDir, t.Logf)
+	dispatchToken, err := createDispatchPAT(env.page, testOrg, env.cfg.password, env.screenshotDir, t.Logf)
 	require.NoError(t, err, "creating dispatch PAT")
 	t.Cleanup(func() {
 		t.Log("Deleting dispatch PAT...")

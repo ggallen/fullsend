@@ -21,7 +21,7 @@ var patScopes = []string{
 // createPAT creates a classic GitHub Personal Access Token via the browser.
 // The token is created with a 7-day expiry and the scopes needed for e2e tests.
 // Returns the token string.
-func createPAT(page playwright.Page, note string, logf func(string, ...any)) (string, error) {
+func createPAT(page playwright.Page, note, password, screenshotDir string, logf func(string, ...any)) (string, error) {
 	url := "https://github.com/settings/tokens/new"
 	if _, err := page.Goto(url, playwright.PageGotoOptions{
 		WaitUntil: playwright.WaitUntilStateDomcontentloaded,
@@ -37,6 +37,19 @@ func createPAT(page playwright.Page, note string, logf func(string, ...any)) (st
 		pageTitle, _ := page.Title()
 		logf("[pat] ERROR: redirected to login page. Title: %s", pageTitle)
 		return "", fmt.Errorf("redirected to login when accessing token page (URL: %s) — session is not authenticated", page.URL())
+	}
+
+	// Handle sudo confirmation if GitHub requires re-authentication.
+	if handled, err := handleSudoIfPresent(page, password, screenshotDir, logf); err != nil {
+		return "", fmt.Errorf("sudo confirmation for PAT creation: %w", err)
+	} else if handled {
+		// After sudo, we may need to re-navigate to the token page.
+		if _, err := page.Goto(url, playwright.PageGotoOptions{
+			WaitUntil: playwright.WaitUntilStateDomcontentloaded,
+			Timeout:   playwright.Float(7500),
+		}); err != nil {
+			return "", fmt.Errorf("re-navigating to token page after sudo: %w", err)
+		}
 	}
 
 	// Verify we're on the right page.
@@ -114,7 +127,7 @@ func createPAT(page playwright.Page, note string, logf func(string, ...any)) (st
 //
 // Prerequisites: the .fullsend repo must already exist (the config-repo
 // and workflows layers must be installed first, just like the real CLI).
-func createDispatchPAT(page playwright.Page, org, screenshotDir string, logf func(string, ...any)) (string, error) {
+func createDispatchPAT(page playwright.Page, org, password, screenshotDir string, logf func(string, ...any)) (string, error) {
 	// Navigate to the fine-grained PAT creation page.
 	// Don't use target_name query param — GitHub's UI doesn't fully activate
 	// the downstream widgets (repo picker, permissions) when pre-filled.
@@ -130,6 +143,19 @@ func createDispatchPAT(page playwright.Page, org, screenshotDir string, logf fun
 		return "", fmt.Errorf("navigating to fine-grained PAT page: %w", err)
 	}
 	logf("[dispatch-pat] Page URL: %s", page.URL())
+
+	// Handle sudo confirmation if GitHub requires re-authentication.
+	if handled, err := handleSudoIfPresent(page, password, screenshotDir, logf); err != nil {
+		return "", fmt.Errorf("sudo confirmation for dispatch PAT creation: %w", err)
+	} else if handled {
+		// After sudo, re-navigate to the fine-grained PAT page.
+		if _, err := page.Goto(patURL, playwright.PageGotoOptions{
+			WaitUntil: playwright.WaitUntilStateDomcontentloaded,
+			Timeout:   playwright.Float(15000),
+		}); err != nil {
+			return "", fmt.Errorf("re-navigating to fine-grained PAT page after sudo: %w", err)
+		}
+	}
 
 	// Wait for the form to render. The "Token name" label is a reliable signal.
 	tokenNameLabel := page.Locator("text=Token name")

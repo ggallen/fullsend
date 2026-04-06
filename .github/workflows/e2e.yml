@@ -42,6 +42,7 @@ jobs:
         run: make e2e-test
         env:
           E2E_SCREENSHOT_DIR: ${{ runner.temp }}/e2e-screenshots
+          E2E_GITHUB_PASSWORD: ${{ secrets.E2E_GITHUB_PASSWORD }}
 
       - name: Upload debug screenshots
         if: always() && github.event.pull_request.head.repo.full_name == github.repository
