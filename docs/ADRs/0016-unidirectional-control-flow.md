@@ -1,5 +1,5 @@
 ---
-title: "5. Unidirectional control flow through the execution stack"
+title: "16. Unidirectional control flow through the execution stack"
 status: Proposed
 relates_to:
   - agent-architecture
@@ -11,7 +11,7 @@ topics:
   - portability
 ---
 
-# 5. Unidirectional control flow through the execution stack
+# 16. Unidirectional control flow through the execution stack
 
 Date: 2026-03-27
 

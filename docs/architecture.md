@@ -23,7 +23,7 @@ Five components form the vertical execution path from event to agent action:
 4. **Agent Harness** — assembles configuration and context (skills, prompts, tools)
 5. **Agent Runtime** — the LLM in execution
 
-Control flows strictly downward through this stack. No layer may influence, configure, or depend on layers above it. This is the execution stack's primary structural invariant. (See [ADR 0005](ADRs/0005-unidirectional-control-flow.md).)
+Control flows strictly downward through this stack. No layer may influence, configure, or depend on layers above it. This is the execution stack's primary structural invariant. (See [ADR 0016](ADRs/0016-unidirectional-control-flow.md).)
 
 The remaining components described in this document (Policy Store, Intent Source, Identity Provider, Observability, Agent Registry) are cross-cutting concerns that feed into the stack from the side. They are not part of the vertical control flow, but they follow the same principle: no component within the stack can modify the cross-cutting systems that constrain it.
 
