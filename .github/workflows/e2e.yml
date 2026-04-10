@@ -4,6 +4,9 @@ permissions:
   contents: read
 
 on:
+  push:
+    branches: [main]
+    paths: ['**/*.go', 'go.mod', 'go.sum', 'e2e/**']
   pull_request:
     paths: ['**/*.go', 'go.mod', 'go.sum', 'e2e/**']
   workflow_dispatch:
@@ -26,12 +29,21 @@ jobs:
       - name: Install Playwright system dependencies
         run: npx playwright install-deps chromium
 
-      - name: Decode session
+      - name: Check for secrets
+        id: secrets-check
         run: |
           if [ -z "$E2E_GITHUB_SESSION_B64" ]; then
-            echo "::error::E2E_GITHUB_SESSION secret is not set"
-            exit 1
+            echo "::warning::E2E secrets are not available (expected for fork PRs). Skipping e2e tests."
+            echo "available=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=true" >> "$GITHUB_OUTPUT"
           fi
+        env:
+          E2E_GITHUB_SESSION_B64: ${{ secrets.E2E_GITHUB_SESSION }}
+
+      - name: Decode session
+        if: steps.secrets-check.outputs.available == 'true'
+        run: |
           SESSION_FILE="${RUNNER_TEMP}/github-session.json"
           printf '%s' "$E2E_GITHUB_SESSION_B64" | base64 -d > "$SESSION_FILE"
           echo "E2E_GITHUB_SESSION_FILE=${SESSION_FILE}" >> "$GITHUB_ENV"
@@ -39,13 +51,14 @@ jobs:
           E2E_GITHUB_SESSION_B64: ${{ secrets.E2E_GITHUB_SESSION }}
 
       - name: Run e2e tests
+        if: steps.secrets-check.outputs.available == 'true'
         run: make e2e-test
         env:
           E2E_SCREENSHOT_DIR: ${{ runner.temp }}/e2e-screenshots
           E2E_GITHUB_PASSWORD: ${{ secrets.E2E_GITHUB_PASSWORD }}
 
       - name: Upload debug screenshots
-        if: always() && github.event.pull_request.head.repo.full_name == github.repository
+        if: always() && steps.secrets-check.outputs.available == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: e2e-screenshots
