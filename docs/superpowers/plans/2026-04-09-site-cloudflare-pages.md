@@ -4,7 +4,7 @@
 
 **Goal:** Replace GitHub Pages with **Cloudflare Workers static assets** (production + per-PR previews), using a secretless **Build Site** workflow plus a **`workflow_run` Deploy Site** workflow with Cloudflare + GitHub Deployment credentials, **`site-preview` / `site-production`**, and an upserted PR comment. Naming uses **site** throughout (workflows, artifact); the mindmap is the current `index.html` source only.
 
-**Architecture:** **`Build Site`** runs on `pull_request` and `push` to `main`, checks out the PR head on PRs, produces `_site/`, uploads artifact **`site`**. **`Deploy Site`** checks out the repo (for `site/wrangler.toml`), downloads the artifact into **`site/public/`**, runs **`wrangler deploy`** on **`push`** and **`wrangler versions upload --preview-alias pr-<pr-number>`** (falls back to `workflow_run.id` only when multiple open PRs share the same head) on **`pull_request`** (Wrangler **4.30.0** via `cloudflare/wrangler-action@v3.14.1` + `wranglerVersion`), resolves a **`workers.dev`** URL for GitHub, then `actions/github-script` records Deployments and comments.
+**Architecture:** **`Build Site`** runs on `pull_request` and `push` to `main`, checks out the PR head on PRs, produces artifact **`site`** with **`_bundle/public/`** + **`_bundle/worker/`** (Worker from that checkout). **`Deploy Site`** checks out the **default branch** (trusted `wrangler.toml` only), downloads the artifact to **`_bundle/`**, copies only **`public/`** and **`worker/`** into **`cloudflare_site/`**, runs **`wrangler deploy`** on **`push`** and **`wrangler versions upload --preview-alias pr-<pr-number>`** on **`pull_request`** (Wrangler **4.30.0** via `cloudflare/wrangler-action@v3.14.1` + `wranglerVersion`), resolves a **`workers.dev`** URL for GitHub, then `actions/github-script` records Deployments and comments.
 
 **Tech Stack:** GitHub Actions, Cloudflare **Workers** (static assets), Wrangler **4.x**, `cloudflare/wrangler-action@v3.14.1`, `actions/github-script@v8`, REST Deployments API.
 
@@ -17,9 +17,9 @@
 | File | Role |
 |------|------|
 | `.github/workflows/site-build.yml` | Secretless build + artifact `site` |
-| `.github/workflows/site-deploy.yml` | Checkout + artifact → `site/public/`, `wrangler deploy` / `versions upload`, GitHub Deployment + PR comment |
-| `site/wrangler.toml` | Worker name placeholder, `assets.directory = public`, SPA `not_found_handling`, `preview_urls` |
-| `site/public/.gitkeep` | Keeps `public/` in git; CI overwrites with artifact contents |
+| `.github/workflows/site-deploy.yml` | Default-branch checkout + artifact → `_bundle/`, then copy only `public/` + `worker/` into `cloudflare_site/`; `wrangler deploy` / `versions upload`, GitHub Deployment + PR comment |
+| `cloudflare_site/wrangler.toml` | Worker name placeholder, `assets.directory = public`, SPA `not_found_handling`, `preview_urls` |
+| `cloudflare_site/public/.gitkeep` | Keeps `public/` in git; CI overwrites with artifact contents |
 | `.github/workflows/mindmap.yml` | **Removed** (replaced by `site-build.yml` / `site-deploy.yml`) |
 | `docs/site-deployment.md` | Operator runbook: Worker, token scopes (Workers Edit), secrets/variables, fork policy, troubleshooting |
 
@@ -58,15 +58,17 @@ jobs:
         with:
           ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
 
-      - name: Prepare site
+      - name: Prepare deploy bundle
         run: |
-          mkdir -p _site
-          cp docs/mindmap.html _site/index.html
+          set -euo pipefail
+          mkdir -p _bundle/public _bundle/worker
+          cp web/public/index.html _bundle/public/index.html
+          cp -a cloudflare_site/worker/. _bundle/worker/
 
       - uses: actions/upload-artifact@v4
         with:
           name: site
-          path: _site/
+          path: _bundle/
           retention-days: 5
 ```
 
@@ -91,10 +93,10 @@ The job must only run for successful runs of **this repository’s** **Build Sit
 
 **Behavior (Workers, not Pages):**
 
-1. `actions/checkout` (so `site/wrangler.toml` exists).
-2. Download artifact **`site`** into **`site/public/`**.
+1. `actions/checkout` on the default branch (so trusted `cloudflare_site/wrangler.toml` exists; deploy does not clone the PR).
+2. Download artifact **`site`** into **`_bundle/`**, then copy only **`public/`** and **`worker/`** into **`cloudflare_site/`** (so the zip cannot overwrite `wrangler.toml`).
 3. **`push`:** `cloudflare/wrangler-action` with `wranglerVersion: "4.30.0"`, `workingDirectory: site`, `command: deploy --name=<CLOUDFLARE_PROJECT_NAME>`.
-4. **`pull_request`:** same action with `command: versions upload --name=<CLOUDFLARE_PROJECT_NAME> --preview-alias pr-<pr-number>` (asset config from `site/wrangler.toml` only; alias falls back to `pr-<workflow_run.id>` if the head matches multiple open PRs).
+4. **`pull_request`:** same action with `command: versions upload --name=<CLOUDFLARE_PROJECT_NAME> --preview-alias pr-<pr-number>` (asset config from `cloudflare_site/wrangler.toml` only; alias falls back to `pr-<workflow_run.id>` if the head matches multiple open PRs).
 5. **Resolve URL:** `deployment-url` output, else parse stdout/stderr for `workers.dev`.
 6. **`actions/github-script`:** GitHub Deployments + PR comment; `description: Cloudflare Workers (static assets)`.
 
@@ -105,7 +107,7 @@ Copy the full YAML from the repository file [`.github/workflows/site-deploy.yml`
 - [ ] **Step 2: Commit**
 
 ```bash
-git add .github/workflows/site-deploy.yml site/wrangler.toml site/public/.gitkeep
+git add .github/workflows/site-deploy.yml cloudflare_site/wrangler.toml cloudflare_site/public/.gitkeep
 git commit -m "ci: deploy site with Workers static assets"
 ```
 
@@ -178,7 +180,7 @@ git commit -m "docs: add documentation site Cloudflare operator runbook"
 
 - [ ] **Step 1: Configure Cloudflare + GitHub** per `docs/site-deployment.md` on your fork.
 
-- [ ] **Step 2: Push a commit on `main` that touches `docs/mindmap.html`**
+- [ ] **Step 2: Push a commit on `main` that touches `web/public/index.html`** (document graph; formerly `docs/mindmap.html`)
 
 Expected: **`Build Site`** succeeds; **`Deploy Site`** runs; Cloudflare **production Worker** updates; GitHub shows **`site-production`** with `environment_url` on **`workers.dev`** (or your custom host).
 
@@ -186,7 +188,7 @@ Expected: **`Build Site`** succeeds; **`Deploy Site`** runs; Cloudflare **produc
 
 Expected: **`wrangler versions upload`** preview; **`site-preview`** deployment; one PR comment updated on reruns.
 
-- [ ] **Step 4: Open a PR from a second GitHub user / fork** (or your own fork of your fork) changing `docs/mindmap.html`**
+- [ ] **Step 4: Open a PR from a second GitHub user / fork** (or your own fork of your fork) changing `web/public/index.html`
 
 Expected: build succeeds on the base repo without Cloudflare secrets in fork logs; deploy + comment still occur from the base repo’s deploy workflow.
 

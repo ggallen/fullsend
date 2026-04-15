@@ -7,7 +7,7 @@ Status: Draft (brainstorm consolidated)
 
 ## Context
 
-The repository publishes a **static documentation site**. Today the primary surface is the interactive document graph in `docs/mindmap.html`; the site will likely **grow** (more pages or assets under `docs/` or a dedicated static tree). CI treats this as **one deployable site**: produce a directory (today `_site/` with `index.html` from the mindmap), upload it as artifact **`site`**, then deploy from **`site/public/`** using Wrangler and [`site/wrangler.toml`](../../../site/wrangler.toml).
+The repository publishes a **static documentation site**. Today the primary surface is the interactive document graph in [`web/public/index.html`](../../../web/public/index.html); the site will likely **grow** (more pages or a Vite-built tree under `web/`). CI packs **`_bundle/public/`** (static) plus **`_bundle/worker/`** (from the build checkout) into artifact **`site`**. **Deploy** checks out the **default branch** only (trusted [`cloudflare_site/wrangler.toml`](../../../cloudflare_site/wrangler.toml)), downloads the artifact to **`_bundle/`**, copies **only** **`public/`** and **`worker/`** into **`cloudflare_site/`** (rejecting any other top-level paths so **`wrangler.toml` cannot be injected from the zip**), then runs Wrangler.
 
 **Implemented:** [`.github/workflows/site-build.yml`](../../../.github/workflows/site-build.yml) and [`.github/workflows/site-deploy.yml`](../../../.github/workflows/site-deploy.yml) use the build → artifact → `workflow_run` deploy split. **Production** uses **`wrangler deploy`** (Worker + static assets). **Pull requests** use **`wrangler versions upload --preview-alias …`** so previews get a stable **`*.workers.dev`** URL without promoting a new production version. The previous GitHub Pages workflow has been **removed**.
 
@@ -42,19 +42,19 @@ The repository publishes a **static documentation site**. Today the primary surf
 
 ### Workflow split
 
-1. **Build (`site-build.yml`):** `pull_request` + `push` to `main` (no `paths` filter in current fork—runs on every PR/push; may be narrowed later). Produces **`site`** artifact (`_site/`).
-2. **Deploy (`site-deploy.yml`):** On successful **Build Site**, checkout (for `site/wrangler.toml`), download artifact into **`site/public/`**, then:
+1. **Build (`site-build.yml`):** `pull_request` + `push` to `main` (no `paths` filter in current fork—runs on every PR/push; may be narrowed later). Produces **`site`** artifact with **`_bundle/public/`** and **`_bundle/worker/`** (Worker sources from the build checkout).
+2. **Deploy (`site-deploy.yml`):** On successful **Build Site**, checkout **default branch** (trusted `wrangler.toml` only), download artifact to **`_bundle/`**, copy **`public/`** + **`worker/`** into **`cloudflare_site/`** (only those subtrees; no wholesale extract into the Wrangler project root), then:
    - **`push`:** `wrangler deploy --name=<var>` → production.
    - **`pull_request`:** `wrangler versions upload` (asset config from `wrangler.toml` only) with `--preview-alias pr-<pr-number>` (falls back to `workflow_run.id` only when multiple open PRs share the same head) → preview only.
 
 **Permissions:** Build: `contents: read` only. Deploy: `actions: read`, `deployments: write`, `pull-requests: write`. No `pages: write` for this site.
 
-### `site/wrangler.toml`
+### `cloudflare_site/wrangler.toml`
 
 - **`[assets].directory`:** `./public` (filled in CI).
 - **`not_found_handling = "single-page-application"`** for the single-page mindmap.
 - **`workers_dev = true`**, **`preview_urls = true`**.
-- **No `main`** (assets-only Worker).
+- **`main = "worker/src/index.ts"`** — minimal pass-through to `ASSETS` today; future OAuth/API logic extends this file without changing deploy wiring.
 
 ### GitHub environment names
 

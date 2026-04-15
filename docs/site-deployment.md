@@ -2,18 +2,18 @@
 
 ## Overview
 
-This repository publishes a static documentation site built from `docs/mindmap.html` (copied to `_site/index.html` in CI, then deployed from `site/public/`). Deployment uses **Cloudflare Workers with [static assets](https://developers.cloudflare.com/workers/static-assets/)** (not the legacy **Pages direct-upload** / `wrangler pages deploy` flow).
+This repository publishes a static documentation site whose root page is built from [`web/public/index.html`](../web/public/index.html). **Build Site** packs **`public/`** (static files) and **`worker/`** (TypeScript Worker from the same checkout—PR head on PR builds) under **`_bundle/`** in one artifact. **Deploy Site** checks out **only the default branch** (trusted [`cloudflare_site/wrangler.toml`](../cloudflare_site/wrangler.toml); never PR-controlled config on the secret-bearing runner), downloads the artifact to **`_bundle/`**, then **copies only** **`_bundle/public/`** and **`_bundle/worker/`** into **`cloudflare_site/`** (so a malicious artifact cannot overwrite `wrangler.toml` or other repo files), then runs Wrangler. Deployment uses **Cloudflare Workers with [static assets](https://developers.cloudflare.com/workers/static-assets/)** (not the legacy **Pages direct-upload** / `wrangler pages deploy` flow).
 
 Two GitHub Actions workflows:
 
-- **Build Site** — on `pull_request` and `push` to `main`, checks out the PR head when relevant, builds `_site/`, uploads artifact **`site`**.
-- **Deploy Site** — on successful **Build Site** via `workflow_run`, checks out the repo (for [`site/wrangler.toml`](../site/wrangler.toml)), downloads the artifact into `site/public/`, then:
+- **Build Site** — on `pull_request` and `push` to `main`, checks out the PR head when relevant, assembles **`_bundle/public/`** and **`_bundle/worker/`**, uploads artifact **`site`** (`_bundle/` contents).
+- **Deploy Site** — on successful **Build Site** via `workflow_run`, checks out the repo default ref (trusted Wrangler project files), downloads artifact **`site`** into **`_bundle/`**, copies **`public/`** and **`worker/`** into **`cloudflare_site/`**, then:
   - **push to `main`:** `wrangler deploy` → production Worker traffic.
   - **pull_request:** `wrangler versions upload --preview-alias pr-<pr-number>` → preview URL on `*.workers.dev` without changing production (alias falls back to `pr-<workflow_run.id>` only when the same fork branch matches more than one open PR).
 
 GitHub **Deployments** use environments **`site-preview`** and **`site-production`**; PRs also get a single upserted comment with the preview link.
 
-For architecture and naming, see [2026-04-09-site-cloudflare-pages-design.md](superpowers/specs/2026-04-09-site-cloudflare-pages-design.md) (document filename still says “pages” for history; content describes Workers).
+For architecture and naming, see [2026-04-09-site-cloudflare-pages-design.md](superpowers/specs/2026-04-09-site-cloudflare-pages-design.md) (document filename still says “pages” for history; content describes Workers). Repository layout for `web/` vs `cloudflare_site/` is decided in [ADR 0019](ADRs/0019-web-source-and-cloudflare-site-layout.md).
 
 ## Cloudflare setup
 
@@ -64,8 +64,8 @@ Disable **GitHub Pages** under **Settings → Pages** if it was only used for th
 From the repository root:
 
 ```bash
-mkdir -p site/public && cp docs/mindmap.html site/public/index.html
-cd site && npx wrangler@4 dev
+mkdir -p cloudflare_site/public && cp web/public/index.html cloudflare_site/public/index.html
+cd cloudflare_site && npx wrangler@4 dev
 ```
 
 Requires a Cloudflare login or API token in the environment per [Wrangler docs](https://developers.cloudflare.com/workers/wrangler/).
