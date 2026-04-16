@@ -130,8 +130,8 @@ type TraceConfig struct {
 	Enabled *bool `yaml:"enabled,omitempty"` // default: true
 }
 
-// boolDefault returns the value of a *bool, or the default if nil.
-func boolDefault(b *bool, def bool) bool {
+// BoolDefault returns the value of a *bool, or the default if nil.
+func BoolDefault(b *bool, def bool) bool {
 	if b == nil {
 		return def
 	}
@@ -143,7 +143,7 @@ func (h *Harness) SecurityEnabled() bool {
 	if h.Security == nil {
 		return true
 	}
-	return boolDefault(h.Security.Enabled, true)
+	return BoolDefault(h.Security.Enabled, true)
 }
 
 // FailModeClosed returns true if the security fail mode is "closed" (default).

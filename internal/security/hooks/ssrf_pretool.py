@@ -132,13 +132,22 @@ def process_tool_call(tool_input: dict) -> str | None:
     return None
 
 
+MAX_INPUT_BYTES = 10 * 1024 * 1024  # 10 MB
+
+
 def main():
     try:
-        raw = sys.stdin.read()
+        raw = sys.stdin.read(MAX_INPUT_BYTES + 1)
+        if len(raw) > MAX_INPUT_BYTES:
+            # Oversized input — fail closed.
+            json.dump({"decision": "block", "reason": "Hook input exceeds 10 MB limit"}, sys.stdout)
+            sys.exit(1)
         if not raw.strip():
             sys.exit(0)
         tool_input = json.loads(raw)
-    except (json.JSONDecodeError, Exception):
+    except json.JSONDecodeError:
+        sys.exit(0)
+    except Exception:
         sys.exit(0)
 
     reason = process_tool_call(tool_input)

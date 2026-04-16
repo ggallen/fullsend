@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -380,7 +381,11 @@ func writeSanitizedOutput(outputFile string, sanitized map[string]string) error 
 		return err
 	}
 
-	_, err = fmt.Fprintf(f, "sanitized_payload=%s\n", string(data))
+	// Use GitHub Actions multiline delimiter syntax to prevent injection
+	// via newlines in the JSON payload. A random delimiter ensures the
+	// payload cannot close the block prematurely.
+	delimiter := fmt.Sprintf("FULLSEND_EOF_%d", time.Now().UnixNano())
+	_, err = fmt.Fprintf(f, "sanitized_payload<<%s\n%s\n%s\n", delimiter, string(data), delimiter)
 	return err
 }
 

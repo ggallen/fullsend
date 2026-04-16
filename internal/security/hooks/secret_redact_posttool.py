@@ -143,9 +143,15 @@ def redact_text(text: str) -> tuple[str, list[dict]]:
     return result, findings
 
 
+MAX_INPUT_BYTES = 10 * 1024 * 1024  # 10 MB
+
+
 def main():
     try:
-        raw = sys.stdin.read()
+        raw = sys.stdin.read(MAX_INPUT_BYTES + 1)
+        if len(raw) > MAX_INPUT_BYTES:
+            # Oversized input — skip redaction (post-tool, never blocks).
+            sys.exit(0)
         if not raw.strip():
             sys.exit(0)
         hook_input = json.loads(raw)

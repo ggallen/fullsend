@@ -33,10 +33,17 @@ func (s *SecretRedactor) Scan(text string) ScanResult {
 	result := ScanResult{Safe: true, Sanitized: text}
 	current := text
 
-	// Prefix-based patterns (full match is the secret)
+	// Prefix-based patterns (full match is the secret).
+	// Use ReplaceAll to catch duplicate occurrences of the same secret.
 	for _, p := range s.prefixPatterns {
+		// Deduplicate matches so we report each unique secret once.
+		seen := map[string]bool{}
 		matches := p.regex.FindAllString(current, -1)
 		for _, match := range matches {
+			if seen[match] {
+				continue
+			}
+			seen[match] = true
 			masked := mask(match)
 			result.Findings = append(result.Findings, Finding{
 				Scanner:  "secret_redactor",
@@ -44,7 +51,7 @@ func (s *SecretRedactor) Scan(text string) ScanResult {
 				Severity: "critical",
 				Detail:   fmt.Sprintf("Redacted %s (%d chars) -> %s", p.name, len(match), masked),
 			})
-			current = strings.Replace(current, match, masked, 1)
+			current = strings.ReplaceAll(current, match, masked)
 			result.Safe = false
 		}
 	}
@@ -61,7 +68,7 @@ func (s *SecretRedactor) Scan(text string) ScanResult {
 					Severity: "critical",
 					Detail:   "Private key block detected and redacted",
 				})
-				current = strings.Replace(current, match, "[REDACTED PRIVATE KEY]", 1)
+				current = strings.ReplaceAll(current, match, "[REDACTED PRIVATE KEY]")
 				result.Safe = false
 			}
 			continue

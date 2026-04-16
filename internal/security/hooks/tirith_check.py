@@ -22,6 +22,10 @@ from datetime import UTC, datetime
 
 FINDINGS_PATH = "/tmp/workspace/.security/findings.jsonl"
 TIRITH_FAIL_ON = os.environ.get("TIRITH_FAIL_ON", "high")
+# When tirith is baked into the sandbox image, set TIRITH_REQUIRED=1 so that
+# a missing binary is treated as a security failure (fail-closed) rather than
+# silently skipped (fail-open).
+TIRITH_REQUIRED = os.environ.get("TIRITH_REQUIRED", "") == "1"
 
 # Map tirith severity to numeric for comparison
 SEVERITY_LEVELS = {"low": 1, "medium": 2, "high": 3, "critical": 4}
@@ -62,7 +66,10 @@ def check_command(command: str) -> tuple[bool, str]:
             timeout=5,
         )
     except FileNotFoundError:
-        # Tirith not installed, fail open
+        if TIRITH_REQUIRED:
+            reason = "tirith binary not found but TIRITH_REQUIRED=1 (expected in sandbox image)"
+            log_finding("tirith_missing", "critical", reason, "block")
+            return True, reason
         return False, ""
     except subprocess.TimeoutExpired:
         return False, ""
@@ -101,9 +108,16 @@ def check_command(command: str) -> tuple[bool, str]:
     return False, ""
 
 
+MAX_INPUT_BYTES = 10 * 1024 * 1024  # 10 MB
+
+
 def main():
     try:
-        raw = sys.stdin.read()
+        raw = sys.stdin.read(MAX_INPUT_BYTES + 1)
+        if len(raw) > MAX_INPUT_BYTES:
+            # Oversized input — fail closed (pre-tool hook blocks).
+            json.dump({"decision": "block", "reason": "Hook input exceeds 10 MB limit"}, sys.stdout)
+            sys.exit(1)
         if not raw.strip():
             sys.exit(0)
         tool_input = json.loads(raw)

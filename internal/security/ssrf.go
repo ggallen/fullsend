@@ -4,8 +4,13 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"regexp"
 	"strings"
 )
+
+// reURLPattern matches HTTP(S) and dangerous-scheme URLs in free text.
+// Mirrors the Python hook's URL_PATTERN for consistency.
+var reURLPattern = regexp.MustCompile(`(?i)(?:https?|file|ftp|gopher|data|dict|ldap|tftp)://[^\s"'` + "`" + `|;<>()]+`)
 
 // SSRFValidator validates URLs against blocked networks, hostnames,
 // and schemes to prevent Server-Side Request Forgery. Adapted from
@@ -167,19 +172,15 @@ func (s *SSRFValidator) ValidateRedirectChain(urls []string) ScanResult {
 }
 
 // Scan implements the Scanner interface. Extracts URLs from text and
-// validates each one.
+// validates each one. Uses regex-based extraction (matching the Python
+// hook's URL_PATTERN) to handle URLs embedded in markdown, JSON, etc.
 func (s *SSRFValidator) Scan(text string) ScanResult {
-	// Simple URL extraction — finds http:// and https:// URLs
 	result := ScanResult{Safe: true}
 
-	words := strings.Fields(text)
-	for _, word := range words {
-		// Strip common punctuation that wraps URLs
-		word = strings.Trim(word, "\"'<>()[]{}`,;")
-		if !strings.HasPrefix(word, "http://") && !strings.HasPrefix(word, "https://") {
-			continue
-		}
-		r := s.ValidateURL(word, false)
+	for _, match := range reURLPattern.FindAllString(text, -1) {
+		// Strip trailing punctuation that may be part of surrounding text.
+		match = strings.TrimRight(match, ".,;:!?")
+		r := s.ValidateURL(match, false)
 		if !r.Safe {
 			result.Safe = false
 			result.Findings = append(result.Findings, r.Findings...)

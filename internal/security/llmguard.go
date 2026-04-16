@@ -2,6 +2,7 @@ package security
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -54,7 +55,7 @@ try:
 except ImportError:
     json.dump({"is_injection": False, "risk_score": 0, "detail": "llm-guard not installed"}, sys.stdout)
 except Exception as e:
-    json.dump({"is_injection": False, "risk_score": 0, "detail": str(e)}, sys.stdout)
+    json.dump({"is_injection": True, "risk_score": 1.0, "detail": "scanner error (fail-closed): " + str(e)}, sys.stdout)
 `, s.MatchType, s.Threshold)
 
 	cmd := exec.Command("python3", "-c", script)
@@ -62,13 +63,28 @@ except Exception as e:
 
 	output, err := cmd.Output()
 	if err != nil {
-		// Fail open — Python not available or script error.
-		return ScanResult{Safe: true}
+		// Fail open only when python3 is not installed.
+		// Script errors (non-zero exit) may still have JSON output — continue parsing.
+		var exitErr *exec.ExitError
+		if !errors.As(err, &exitErr) {
+			// Python not available — fail open (documented behavior).
+			return ScanResult{Safe: true}
+		}
 	}
 
 	var result LLMGuardResult
 	if err := json.Unmarshal(output, &result); err != nil {
-		return ScanResult{Safe: true}
+		// Cannot parse scanner output — fail closed.
+		return ScanResult{
+			Safe: false,
+			Findings: []Finding{{
+				Scanner:  "llm_guard",
+				Name:     "scanner_error",
+				Severity: "high",
+				Detail:   "LLM Guard returned unparseable output (fail-closed)",
+				Position: -1,
+			}},
+		}
 	}
 
 	if result.IsInjection {

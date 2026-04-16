@@ -628,51 +628,80 @@ func buildClaudeCommand(agentName, model, repoDir string) string {
 // inside the sandbox. It finds known context files in the repo directory and
 // passes them as arguments.
 func buildScanContextCommand(repoDir, traceID string) string {
+	// Defense-in-depth: validate traceID before shell interpolation even though
+	// GenerateTraceID() only produces safe hex characters.
+	if !security.IsValidTraceID(traceID) {
+		// Should never happen with internal generation, but fail safely.
+		traceID = "invalid-trace-id"
+	}
 	// Use find to locate context files, then pass them to fullsend scan context.
 	// This runs inside the sandbox where fullsend is available.
 	// Quote repoDir to prevent shell injection via directory names.
 	escapedDir := strings.ReplaceAll(repoDir, "'", "'\\''")
+
+	// Build -iname arguments from ScannableFiles to keep the lists in sync.
+	var inames []string
+	seen := map[string]bool{}
+	for name := range security.ScannableFiles {
+		lower := strings.ToLower(name)
+		if seen[lower] {
+			continue
+		}
+		seen[lower] = true
+		inames = append(inames, fmt.Sprintf("-iname '%s'", lower))
+	}
+	// Add files only relevant for find (not in ScannableFiles).
+	for _, extra := range []string{".cursorignore"} {
+		if !seen[extra] {
+			inames = append(inames, fmt.Sprintf("-iname '%s'", extra))
+		}
+	}
+	sort.Strings(inames) // deterministic ordering
+	inameExpr := strings.Join(inames, " -o ")
+
 	return fmt.Sprintf(
-		"FULLSEND_TRACE_ID='%s' find '%s' -maxdepth 3 -type f \\( "+
-			"-iname 'CLAUDE.md' -o -iname 'AGENTS.md' -o -iname '.cursorrules' "+
-			"-o -iname '.cursorignore' -o -iname 'COPILOT.md' "+
-			"\\) -exec fullsend scan context {} +",
-		traceID, escapedDir,
+		"FULLSEND_TRACE_ID='%s' find '%s' -maxdepth 3 -type f \\( %s \\) -exec fullsend scan context {} +",
+		traceID, escapedDir, inameExpr,
 	)
 }
 
-// scanOutputFiles runs the secret redactor on extracted output files.
+// scanOutputFiles runs the secret redactor on extracted output files,
+// recursively walking all subdirectories (iteration-N/output/, etc.).
 func scanOutputFiles(outputDir, traceID string, printer *ui.Printer) error {
-	entries, err := os.ReadDir(outputDir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			printer.StepInfo("No output files to scan")
-			return nil
-		}
-		return err
+	if _, err := os.Stat(outputDir); os.IsNotExist(err) {
+		printer.StepInfo("No output files to scan")
+		return nil
 	}
 
 	redactor := security.NewSecretRedactor()
 	redacted := 0
+	findingsPath := filepath.Join(outputDir, "security", "findings.jsonl")
 
-	for _, e := range entries {
-		if e.IsDir() {
-			continue
-		}
-		path := filepath.Join(outputDir, e.Name())
-		content, err := os.ReadFile(path)
+	err := filepath.WalkDir(outputDir, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
-			printer.StepWarn(fmt.Sprintf("Could not read %s: %v", e.Name(), err))
-			continue
+			return nil // skip unreadable entries
+		}
+		if d.IsDir() {
+			// Skip the security findings directory itself.
+			if d.Name() == "security" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		content, readErr := os.ReadFile(path)
+		if readErr != nil {
+			relPath, _ := filepath.Rel(outputDir, path)
+			printer.StepWarn(fmt.Sprintf("Could not read %s: %v", relPath, readErr))
+			return nil
 		}
 
 		result := redactor.Scan(string(content))
 		if len(result.Findings) > 0 {
 			redacted += len(result.Findings)
+			relPath, _ := filepath.Rel(outputDir, path)
 			for _, f := range result.Findings {
-				printer.StepWarn(fmt.Sprintf("Redacted [%s] in %s: %s", f.Name, e.Name(), f.Detail))
-				// Log to trace.
-				security.AppendFinding(filepath.Join(outputDir, "..", "security", "findings.jsonl"),
+				printer.StepWarn(fmt.Sprintf("Redacted [%s] in %s: %s", f.Name, relPath, f.Detail))
+				security.AppendFinding(findingsPath,
 					security.TracedFinding{
 						TraceID:   traceID,
 						Timestamp: time.Now().UTC().Format(time.RFC3339),
@@ -680,10 +709,14 @@ func scanOutputFiles(outputDir, traceID string, printer *ui.Printer) error {
 						Finding:   f,
 					})
 			}
-			if err := os.WriteFile(path, []byte(result.Sanitized), 0o644); err != nil {
-				printer.StepWarn(fmt.Sprintf("Could not write redacted %s: %v", e.Name(), err))
+			if writeErr := os.WriteFile(path, []byte(result.Sanitized), 0o644); writeErr != nil {
+				printer.StepWarn(fmt.Sprintf("Could not write redacted %s: %v", relPath, writeErr))
 			}
 		}
+		return nil
+	})
+	if err != nil {
+		return err
 	}
 
 	if redacted > 0 {
@@ -749,14 +782,27 @@ func bootstrapSecurityHooks(sshConfigPath, sandboxName string, h *harness.Harnes
 	}
 	os.Remove(tmpSettings.Name())
 
-	// Set Tirith fail_on threshold if configured.
+	// Set Tirith env vars if configured.
 	if h.Security != nil && h.Security.SandboxHooks != nil &&
-		h.Security.SandboxHooks.Tirith != nil && h.Security.SandboxHooks.Tirith.FailOn != "" {
-		// FailOn is validated by harness.validateSecurity() to be one of: critical, high, medium.
-		envCmd := fmt.Sprintf("echo 'export TIRITH_FAIL_ON=%s' >> %s/.env",
-			h.Security.SandboxHooks.Tirith.FailOn, sandbox.SandboxWorkspace)
-		if _, _, _, err := sandbox.SSH(sshConfigPath, sandboxName, envCmd, 10*time.Second); err != nil {
-			return fmt.Errorf("setting TIRITH_FAIL_ON: %w", err)
+		h.Security.SandboxHooks.Tirith != nil {
+		tirithCfg := h.Security.SandboxHooks.Tirith
+
+		if tirithCfg.FailOn != "" {
+			// FailOn is validated by harness.validateSecurity() to be one of: critical, high, medium.
+			envCmd := fmt.Sprintf("echo 'export TIRITH_FAIL_ON=%s' >> %s/.env",
+				tirithCfg.FailOn, sandbox.SandboxWorkspace)
+			if _, _, _, err := sandbox.SSH(sshConfigPath, sandboxName, envCmd, 10*time.Second); err != nil {
+				return fmt.Errorf("setting TIRITH_FAIL_ON: %w", err)
+			}
+		}
+
+		// When tirith is enabled (default), mark it as required so the hook
+		// fails closed if the binary is missing from the sandbox image.
+		if harness.BoolDefault(tirithCfg.Enabled, true) {
+			envCmd := fmt.Sprintf("echo 'export TIRITH_REQUIRED=1' >> %s/.env", sandbox.SandboxWorkspace)
+			if _, _, _, err := sandbox.SSH(sshConfigPath, sandboxName, envCmd, 10*time.Second); err != nil {
+				return fmt.Errorf("setting TIRITH_REQUIRED: %w", err)
+			}
 		}
 	}
 
@@ -768,7 +814,7 @@ func injectTraceID(sshConfigPath, sandboxName, traceID string) error {
 	if !security.IsValidTraceID(traceID) {
 		return fmt.Errorf("invalid trace ID format: %q", traceID)
 	}
-	// Safe: IsValidTraceID() above ensures traceID matches ^[a-f0-9-]+$ only.
+	// Safe: IsValidTraceID() above ensures traceID matches UUID v4 format only.
 	cmd := fmt.Sprintf("echo 'export FULLSEND_TRACE_ID=%s' >> %s/.env", traceID, sandbox.SandboxWorkspace)
 	_, _, _, err := sandbox.SSH(sshConfigPath, sandboxName, cmd, 10*time.Second)
 	return err

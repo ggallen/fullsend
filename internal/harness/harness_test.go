@@ -305,8 +305,8 @@ security:
 	assert.False(t, h.FailModeClosed())
 
 	require.NotNil(t, h.Security.HostScanners)
-	assert.True(t, boolDefault(h.Security.HostScanners.UnicodeNormalizer, true))
-	assert.False(t, boolDefault(h.Security.HostScanners.ContextInjection, true))
+	assert.True(t, BoolDefault(h.Security.HostScanners.UnicodeNormalizer, true))
+	assert.False(t, BoolDefault(h.Security.HostScanners.ContextInjection, true))
 
 	require.NotNil(t, h.Security.HostScanners.LLMGuard)
 	assert.Equal(t, 0.85, h.Security.HostScanners.LLMGuard.Threshold)
@@ -315,14 +315,14 @@ security:
 	require.NotNil(t, h.Security.SandboxHooks)
 	require.NotNil(t, h.Security.SandboxHooks.Tirith)
 	assert.Equal(t, "medium", h.Security.SandboxHooks.Tirith.FailOn)
-	assert.True(t, boolDefault(h.Security.SandboxHooks.SSRFPreTool, true))
+	assert.True(t, BoolDefault(h.Security.SandboxHooks.SSRFPreTool, true))
 
 	require.NotNil(t, h.Security.Escalation)
 	assert.Equal(t, "review", h.Security.Escalation.OnCritical)
 	assert.Equal(t, "needs-review", h.Security.Escalation.ReviewLabel)
 
 	require.NotNil(t, h.Security.Trace)
-	assert.True(t, boolDefault(h.Security.Trace.Enabled, true))
+	assert.True(t, BoolDefault(h.Security.Trace.Enabled, true))
 }
 
 func TestValidate_SecurityInvalidFailMode(t *testing.T) {

@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-var reTraceID = regexp.MustCompile(`^[a-f0-9-]+$`)
+var reTraceID = regexp.MustCompile(`^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$`)
 
 // GenerateTraceID returns a UUID v4 string for correlating security findings
 // across scanning phases (host pre-step, sandbox pre-agent, runtime hooks,
@@ -41,7 +41,7 @@ type TracedFinding struct {
 
 // AppendFinding writes a traced finding as a JSON line to the given file path.
 func AppendFinding(path string, tf TracedFinding) error {
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0o644)
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0o600)
 	if err != nil {
 		return fmt.Errorf("opening findings file: %w", err)
 	}
