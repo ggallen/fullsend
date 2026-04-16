@@ -1,6 +1,6 @@
 name: Fullsend
 description: >-
-  Install fullsend-cli, run fullsend entrypoint (stdout must be the artifact directory path), then
+  Install fullsend-cli, run fullsend run (stdout must be the artifact directory path), then
   upload that directory with actions/upload-artifact. Does not read agent configuration from the repository;
   configure the job environment or CLI as needed.
 
@@ -10,7 +10,7 @@ branding:
 
 inputs:
   agent:
-    description: Agent name passed to fullsend entrypoint (e.g. triage, code, review).
+    description: Agent name passed to fullsend run (e.g. triage, code, review).
     required: true
   version:
     description: >-
@@ -20,7 +20,7 @@ inputs:
 
 outputs:
   artifact_dir:
-    description: Absolute path printed by fullsend entrypoint on stdout (same path uploaded as an artifact).
+    description: Absolute path printed by fullsend run on stdout (same path uploaded as an artifact).
     value: ${{ steps.run-fullsend.outputs.artifact_dir }}
 
 runs:
@@ -93,16 +93,16 @@ runs:
       run: |
         set -euo pipefail
         # fullsend must print the artifact directory path on stdout (last line wins if multiple lines).
-        ARTIFACT_DIR="$(echo fullsend entrypoint "${AGENT}" | tail -n1)"
+        ARTIFACT_DIR="$(fullsend run "${AGENT}" --harness-dir "${GITHUB_WORKSPACE}/.fullsend" | tail -n1)"
         ARTIFACT_DIR="$(printf '%s' "${ARTIFACT_DIR}" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
         if [[ -z "${ARTIFACT_DIR}" ]]; then
-          echo "::error::fullsend entrypoint did not print an artifact directory on stdout"
+          echo "::error::fullsend run did not print an artifact directory on stdout"
           exit 1
         fi
         echo "artifact_dir=${ARTIFACT_DIR}" >> "${GITHUB_OUTPUT}"
 
     - name: Upload fullsend artifacts
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: fullsend-${{ inputs.agent }}
         path: ${{ steps.run-fullsend.outputs.artifact_dir }}
