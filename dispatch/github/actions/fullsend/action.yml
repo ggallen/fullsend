@@ -1,8 +1,8 @@
 name: Fullsend
 description: >-
-  Install fullsend-cli, run fullsend run (stdout must be the artifact directory path), then
-  upload that directory with actions/upload-artifact. Does not read agent configuration from the repository;
-  configure the job environment or CLI as needed.
+  Install fullsend-cli, create ${GITHUB_WORKSPACE}/output, invoke fullsend run with
+  --output-dir pointing at that directory, then upload it with actions/upload-artifact. Does not
+  read agent configuration from the repository; configure the job environment or CLI as needed.
 
 branding:
   icon: zap
@@ -18,16 +18,10 @@ inputs:
       names use the version without v (fullsend_0.0.1_linux_amd64.tar.gz).
     default: latest
 
-outputs:
-  artifact_dir:
-    description: Absolute path printed by fullsend run on stdout (same path uploaded as an artifact).
-    value: ${{ steps.run-fullsend.outputs.artifact_dir }}
-
 runs:
   using: composite
   steps:
-    - id: install-fullsend
-      name: Install fullsend CLI
+    - name: Install fullsend CLI
       shell: bash
       env:
         VERSION: ${{ inputs.version }}
@@ -85,24 +79,25 @@ runs:
         tar -xzf "/tmp/${ASSET_NAME}" -C "${RUNNER_TEMP}/fullsend"
         echo "${RUNNER_TEMP}/fullsend" >> "${GITHUB_PATH}"
 
-    - id: run-fullsend
-      name: Run fullsend
+    - name: Install OpenShell
+      run: |
+        curl -LsSf https://raw.githubusercontent.com/NVIDIA/OpenShell/v0.0.30/install.sh | sh
+        openshell --version
+
+    - name: Run fullsend
       shell: bash
       env:
         AGENT: ${{ inputs.agent }}
       run: |
         set -euo pipefail
-        # fullsend must print the artifact directory path on stdout (last line wins if multiple lines).
-        ARTIFACT_DIR="$(fullsend run "${AGENT}" --harness-dir "${GITHUB_WORKSPACE}/.fullsend" | tail -n1)"
-        ARTIFACT_DIR="$(printf '%s' "${ARTIFACT_DIR}" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
-        if [[ -z "${ARTIFACT_DIR}" ]]; then
-          echo "::error::fullsend run did not print an artifact directory on stdout"
-          exit 1
-        fi
-        echo "artifact_dir=${ARTIFACT_DIR}" >> "${GITHUB_OUTPUT}"
+        mkdir -p "${GITHUB_WORKSPACE}/output"
+        fullsend run "${AGENT}" \
+          --fullsend-dir "${GITHUB_WORKSPACE}/.fullsend" \
+          --output-dir "${GITHUB_WORKSPACE}/output" \
+          --target-repo "${GITHUB_WORKSPACE}/target-repo"
 
     - name: Upload fullsend artifacts
       uses: actions/upload-artifact@v7
       with:
         name: fullsend-${{ inputs.agent }}
-        path: ${{ steps.run-fullsend.outputs.artifact_dir }}
+        path: ${{ github.workspace }}/output

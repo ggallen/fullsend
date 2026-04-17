@@ -54,5 +54,7 @@ jobs:
 
       - name: Run triage agent(s)
         uses: ./.github/actions/fullsend
+        env:
+          GITHUB_ISSUE_URL: ${{ github.event.issue.html_url }}
         with:
           agent: triage

@@ -60,5 +60,8 @@ jobs:
 
       - name: Run review agent(s)
         uses: ./.github/actions/fullsend
+        env:
+          GITHUB_ISSUE_URL: ${{ github.event.issue.html_url }}
+          GITHUB_PR_URL: ${{ github.event.pull_request.html_url }}
         with:
           agent: review
