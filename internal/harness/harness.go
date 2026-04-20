@@ -423,3 +423,18 @@ func (h *Harness) ValidateFilesExist() error {
 	}
 	return nil
 }
+
+// Scripts returns all script paths configured in the harness.
+func (h *Harness) Scripts() []string {
+	var scripts []string
+	if h.PreScript != "" {
+		scripts = append(scripts, h.PreScript)
+	}
+	if h.PostScript != "" {
+		scripts = append(scripts, h.PostScript)
+	}
+	if h.ValidationLoop != nil && h.ValidationLoop.Script != "" {
+		scripts = append(scripts, h.ValidationLoop.Script)
+	}
+	return scripts
+}

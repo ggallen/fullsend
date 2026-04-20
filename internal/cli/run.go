@@ -70,6 +70,19 @@ func runAgent(agentName, fullsendDir, outputBase, targetRepo string, printer *ui
 		return fmt.Errorf("resolving paths: %w", err)
 	}
 
+	// Temporarily set FULLSEND_DIR so ValidateRunnerEnv sees it when
+	// checking ${VAR} references. The custom expander below handles the
+	// actual expansion without polluting the process environment long-term.
+	prevFullsendDir, hadFullsendDir := os.LookupEnv("FULLSEND_DIR")
+	os.Setenv("FULLSEND_DIR", absFullsendDir)
+	defer func() {
+		if hadFullsendDir {
+			os.Setenv("FULLSEND_DIR", prevFullsendDir)
+		} else {
+			os.Unsetenv("FULLSEND_DIR")
+		}
+	}()
+
 	if err := h.ValidateRunnerEnv(); err != nil {
 		printer.StepFail("Environment validation failed")
 		return fmt.Errorf("validating env: %w", err)
@@ -89,6 +102,16 @@ func runAgent(agentName, fullsendDir, outputBase, targetRepo string, printer *ui
 	if err := h.ValidateFilesExist(); err != nil {
 		printer.StepFail("File validation failed")
 		return fmt.Errorf("validating files: %w", err)
+	}
+	// Ensure scripts are executable. The GitHub Contents API does not
+	// preserve file permissions, so scripts written via admin install
+	// may lack the execute bit.
+	for _, script := range h.Scripts() {
+		if script != "" {
+			if chmodErr := os.Chmod(script, 0o755); chmodErr != nil {
+				printer.StepWarn("Could not chmod " + script + ": " + chmodErr.Error())
+			}
+		}
 	}
 	printer.StepDone(fmt.Sprintf("Harness loaded (%.1fs)", time.Since(harnessStart).Seconds()))
 
