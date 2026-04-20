@@ -43,6 +43,9 @@ func newRunCmd() *cobra.Command {
 }
 
 func runAgent(agentName, fullsendDir, outputBase, targetRepo string, printer *ui.Printer) error {
+	if os.Getenv("GITHUB_ACTIONS") == "true" {
+		printer.SetCIWriter(os.Stderr)
+	}
 	printer.Banner()
 	printer.Blank()
 	printer.Header("Running agent: " + agentName)
@@ -581,8 +584,6 @@ func runHeartbeat(printer *ui.Printer, start time.Time, timeout time.Duration, d
 	ticker := time.NewTicker(heartbeatInterval)
 	defer ticker.Stop()
 
-	isCI := os.Getenv("GITHUB_ACTIONS") == "true"
-
 	for {
 		select {
 		case <-done:
@@ -591,9 +592,7 @@ func runHeartbeat(printer *ui.Printer, start time.Time, timeout time.Duration, d
 			elapsed := time.Since(start).Truncate(time.Second)
 			remaining := (timeout - elapsed).Truncate(time.Second)
 			msg := fmt.Sprintf("Agent running (%s elapsed, %s remaining)", elapsed, remaining)
-			if isCI {
-				fmt.Fprintf(os.Stderr, "::notice::%s\n", sanitizeGHA(msg))
-			}
+			printer.Notice(sanitizeGHA(msg))
 			printer.Heartbeat(msg)
 		}
 	}

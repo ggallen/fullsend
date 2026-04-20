@@ -22,13 +22,33 @@ var (
 // Printer provides styled terminal output. All methods are safe for
 // concurrent use from multiple goroutines.
 type Printer struct {
-	mu sync.Mutex
-	w  io.Writer
+	mu  sync.Mutex
+	w   io.Writer
+	ciW io.Writer
 }
 
 // New creates a new Printer writing to w.
 func New(w io.Writer) *Printer {
 	return &Printer{w: w}
+}
+
+// SetCIWriter sets a writer for CI annotation output (e.g., os.Stderr for
+// GitHub Actions ::notice:: lines). All CI writes are serialized under the
+// same mutex as regular output.
+func (p *Printer) SetCIWriter(w io.Writer) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.ciW = w
+}
+
+// Notice writes a GitHub Actions annotation under the mutex. No-op if no
+// CI writer is configured.
+func (p *Printer) Notice(text string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.ciW != nil {
+		fmt.Fprintf(p.ciW, "::notice::%s\n", text)
+	}
 }
 
 // Banner prints the fullsend brand banner with tagline.
