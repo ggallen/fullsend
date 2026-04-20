@@ -1,6 +1,7 @@
 ---
 name: replay-session
 description: Use when the user wants to replay a Claude Code session from a GitHub Actions artifact link. Downloads the artifact, finds JSONL files, generates an interactive HTML replay with claude-replay, and serves it locally.
+compatibility: Requires claude-replay (npm install -g claude-replay) and gh CLI authenticated with access to the target repository
 ---
 
 # Replay Session from GitHub Actions Artifact
