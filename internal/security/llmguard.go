@@ -9,19 +9,19 @@ import (
 	"strings"
 )
 
-// LLMGuardResult holds the output from the LLM Guard Python scanner.
+// LLMGuardResult holds the output from the prompt injection scanner.
 type LLMGuardResult struct {
 	IsInjection bool    `json:"is_injection"`
 	RiskScore   float64 `json:"risk_score"`
 	Detail      string  `json:"detail"`
 }
 
-// LLMGuardScanner wraps the Python llm-guard library for ML-based prompt
-// injection detection. Runs in Path A (GHA workflow pre-step) and Path B
-// (sandbox pre-agent scan) when the base sandbox image includes Python,
-// llm-guard, and the pre-downloaded DeBERTa-v3 model.
+// LLMGuardScanner runs the ProtectAI DeBERTa-v3 ONNX model for ML-based
+// prompt injection detection. Loads the model directly via onnxruntime
+// (no torch, no llm-guard wrapper). Runs in Path A (GHA workflow pre-step)
+// and Path B (sandbox pre-agent scan).
 //
-// When Required is true (e.g. inside the sandbox where Python + llm-guard
+// When Required is true (e.g. inside the sandbox where Python + the model
 // are baked into the image), a missing Python binary is treated as tampering
 // and the scanner fails closed. When Required is false (e.g. Path A GHA
 // pre-step), a missing runtime is logged as a warning and the scanner fails
@@ -29,13 +29,13 @@ type LLMGuardResult struct {
 type LLMGuardScanner struct {
 	Threshold float64
 	MatchType string // "sentence" or "full"
-	Required  bool   // fail closed when Python/llm-guard unavailable
+	Required  bool   // fail closed when Python/onnxruntime unavailable
 }
 
 // NewLLMGuardScanner creates a scanner with the given threshold, match type,
 // and required flag. When required is true the scanner fails closed if Python
-// or llm-guard is unavailable (intended for the sandbox where both are baked
-// into the image).
+// or onnxruntime is unavailable (intended for the sandbox where both are
+// baked into the image).
 func NewLLMGuardScanner(threshold float64, matchType string, required bool) *LLMGuardScanner {
 	if threshold == 0 {
 		threshold = 0.92
@@ -50,25 +50,46 @@ func NewLLMGuardScanner(threshold float64, matchType string, required bool) *LLM
 	}
 }
 
-// Scan runs the LLM Guard prompt injection scanner on the given text.
-// When Required is false, fails open if Python is unavailable. When
-// Required is true, fails closed (missing Python treated as tampering).
+// Scan runs the ProtectAI DeBERTa-v3 prompt injection scanner on the
+// given text. When Required is false, fails open if Python is unavailable.
+// When Required is true, fails closed (missing Python treated as tampering).
 func (s *LLMGuardScanner) Scan(text string) ScanResult {
 	script := fmt.Sprintf(`
 import json, sys
 try:
-    from llm_guard.input_scanners import PromptInjection
-    from llm_guard.input_scanners.prompt_injection import MatchType
-    mt = MatchType.SENTENCE if %q == "sentence" else MatchType.FULL
-    scanner = PromptInjection(threshold=%f, match_type=mt, use_onnx=True)
-    sanitized, is_valid, risk_score = scanner.scan("", text=sys.stdin.read())
-    json.dump({"is_injection": not is_valid, "risk_score": risk_score, "detail": "LLM Guard ML scan"}, sys.stdout)
+    import numpy as np
+    import onnxruntime as ort
+    from transformers import AutoTokenizer
+    from huggingface_hub import hf_hub_download
+    model_name = "protectai/deberta-v3-base-prompt-injection-v2"
+    tokenizer = AutoTokenizer.from_pretrained(model_name, subfolder="onnx")
+    model_path = hf_hub_download(model_name, "onnx/model.onnx")
+    session = ort.InferenceSession(model_path)
+    input_names = [i.name for i in session.get_inputs()]
+    def score_text(t):
+        inputs = tokenizer(t, return_tensors="np", truncation=True, max_length=512)
+        ort_inputs = {k: v for k, v in inputs.items() if k in input_names}
+        logits = session.run(None, ort_inputs)[0][0]
+        e = np.exp(logits - np.max(logits))
+        probs = e / e.sum()
+        return float(probs[1])
+    text = sys.stdin.read()
+    match_type = %q
+    threshold = %f
+    if match_type == "sentence":
+        from nltk.tokenize import sent_tokenize
+        sentences = sent_tokenize(text.strip())
+        risk_score = max((score_text(s) for s in sentences), default=0.0)
+    else:
+        risk_score = score_text(text)
+    is_injection = risk_score >= threshold
+    json.dump({"is_injection": is_injection, "risk_score": round(risk_score, 4), "detail": "DeBERTa-v3 ONNX ML scan"}, sys.stdout)
 except ImportError:
     import os
     if os.environ.get("LLM_GUARD_REQUIRED", "") == "1":
-        json.dump({"is_injection": True, "risk_score": 1.0, "detail": "llm-guard not installed but LLM_GUARD_REQUIRED=1"}, sys.stdout)
+        json.dump({"is_injection": True, "risk_score": 1.0, "detail": "onnxruntime not installed but LLM_GUARD_REQUIRED=1"}, sys.stdout)
         sys.exit(1)
-    json.dump({"is_injection": False, "risk_score": 0, "detail": "llm-guard not installed"}, sys.stdout)
+    json.dump({"is_injection": False, "risk_score": 0, "detail": "onnxruntime not installed"}, sys.stdout)
 except Exception as e:
     json.dump({"is_injection": True, "risk_score": 1.0, "detail": "scanner error (fail-closed): " + str(e)}, sys.stdout)
 `, s.MatchType, s.Threshold)
@@ -92,13 +113,13 @@ except Exception as e:
 						Scanner:  "llm_guard",
 						Name:     "python_unavailable",
 						Severity: "critical",
-						Detail:   "Python not available but LLM Guard is required (possible tampering)",
+						Detail:   "Python not available but prompt injection scanner is required (possible tampering)",
 						Position: -1,
 					}},
 				}
 			}
 			// Python not available — fail open with logged warning.
-			fmt.Fprintln(os.Stderr, "WARN: LLM Guard skipped — python3 not available")
+			fmt.Fprintln(os.Stderr, "WARN: prompt injection scanner skipped — python3 not available")
 			return ScanResult{Safe: true}
 		}
 	}
@@ -112,7 +133,7 @@ except Exception as e:
 				Scanner:  "llm_guard",
 				Name:     "scanner_error",
 				Severity: "high",
-				Detail:   "LLM Guard returned unparseable output (fail-closed)",
+				Detail:   "prompt injection scanner returned unparseable output (fail-closed)",
 				Position: -1,
 			}},
 		}
@@ -126,7 +147,7 @@ except Exception as e:
 					Scanner:  "llm_guard",
 					Name:     "prompt_injection_ml",
 					Severity: "critical",
-					Detail:   fmt.Sprintf("LLM Guard detected injection (risk_score=%.3f, threshold=%.3f)", result.RiskScore, s.Threshold),
+					Detail:   fmt.Sprintf("DeBERTa-v3 detected injection (risk_score=%.3f, threshold=%.3f)", result.RiskScore, s.Threshold),
 					Position: -1,
 				},
 			},
