@@ -3,7 +3,10 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
+	"io"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -70,10 +73,22 @@ func TestExtractSafeContext(t *testing.T) {
 			want:     "/src/main.go",
 		},
 		{
+			name:     "write file",
+			toolName: "Write",
+			input:    map[string]interface{}{"file_path": "/src/out.go", "content": "package main"},
+			want:     "/src/out.go",
+		},
+		{
 			name:     "edit file",
 			toolName: "Edit",
 			input:    map[string]interface{}{"file_path": "/src/main.go", "old_string": "secret", "new_string": "redacted"},
 			want:     "/src/main.go",
+		},
+		{
+			name:     "long file path truncated",
+			toolName: "Read",
+			input:    map[string]interface{}{"file_path": "/" + strings.Repeat("a", 250)},
+			want:     "/" + strings.Repeat("a", 199) + "…",
 		},
 		{
 			name:     "grep pattern",
@@ -86,6 +101,12 @@ func TestExtractSafeContext(t *testing.T) {
 			toolName: "Grep",
 			input:    map[string]interface{}{"pattern": "this is a very long pattern that exceeds the fifty character display limit for safety"},
 			want:     "this is a very long pattern that exceeds the fifty…",
+		},
+		{
+			name:     "grep multibyte pattern truncated at rune boundary",
+			toolName: "Grep",
+			input:    map[string]interface{}{"pattern": strings.Repeat("日本語", 20)},
+			want:     strings.Repeat("日本語", 16) + "日本…",
 		},
 		{
 			name:     "glob pattern",
@@ -131,7 +152,9 @@ func TestProgressParser(t *testing.T) {
 	start := time.Now()
 	metrics := &RunMetrics{}
 
-	progressParser(input, printer, start, metrics)
+	if err := progressParser(input, printer, start, metrics); err != nil {
+		t.Fatalf("progressParser returned error: %v", err)
+	}
 
 	if metrics.ToolCalls.Load() != 2 {
 		t.Errorf("expected 2 tool calls, got %d", metrics.ToolCalls.Load())
@@ -158,7 +181,9 @@ func TestProgressParserStreamEvents(t *testing.T) {
 	printer := ui.New(&buf)
 	metrics := &RunMetrics{}
 
-	progressParser(input, printer, time.Now(), metrics)
+	if err := progressParser(input, printer, time.Now(), metrics); err != nil {
+		t.Fatalf("progressParser returned error: %v", err)
+	}
 
 	if metrics.ToolCalls.Load() != 2 {
 		t.Errorf("expected 2 tool calls from stream events, got %d", metrics.ToolCalls.Load())
@@ -177,7 +202,9 @@ func TestProgressParserMalformedJSON(t *testing.T) {
 	printer := ui.New(&buf)
 	metrics := &RunMetrics{}
 
-	progressParser(input, printer, time.Now(), metrics)
+	if err := progressParser(input, printer, time.Now(), metrics); err != nil {
+		t.Fatalf("progressParser returned error: %v", err)
+	}
 
 	if metrics.ToolCalls.Load() != 2 {
 		t.Errorf("expected 2 tool calls (skip malformed), got %d", metrics.ToolCalls.Load())
@@ -195,7 +222,9 @@ func TestProgressParserUnknownToolAllowlisted(t *testing.T) {
 	printer := ui.New(&buf)
 	metrics := &RunMetrics{}
 
-	progressParser(input, printer, time.Now(), metrics)
+	if err := progressParser(input, printer, time.Now(), metrics); err != nil {
+		t.Fatalf("progressParser returned error: %v", err)
+	}
 
 	if metrics.ToolCalls.Load() != 2 {
 		t.Errorf("expected 2 tool calls, got %d", metrics.ToolCalls.Load())
@@ -207,6 +236,49 @@ func TestProgressParserUnknownToolAllowlisted(t *testing.T) {
 	}
 	if !strings.Contains(output, "tool") {
 		t.Errorf("expected generic 'tool' label for unknown tool, got: %s", output)
+	}
+}
+
+func TestProgressParserUnknownToolAssistantNoContext(t *testing.T) {
+	lines := []string{
+		`{"type":"assistant","content":[{"type":"tool_use","name":"CustomTool","input":{"secret":"should-not-appear"}}]}`,
+	}
+
+	input := strings.NewReader(strings.Join(lines, "\n"))
+	var buf bytes.Buffer
+	printer := ui.New(&buf)
+	metrics := &RunMetrics{}
+
+	_ = progressParser(input, printer, time.Now(), metrics)
+
+	output := buf.String()
+	if strings.Contains(output, "should-not-appear") {
+		t.Errorf("non-allowlisted tool should not extract context, got: %s", output)
+	}
+	if strings.Contains(output, "CustomTool") {
+		t.Errorf("non-allowlisted tool name should not appear, got: %s", output)
+	}
+}
+
+func TestProgressParserReaderError(t *testing.T) {
+	pr, pw := io.Pipe()
+
+	go func() {
+		pw.Write([]byte(`{"type":"assistant","content":[{"type":"tool_use","name":"Read","input":{"file_path":"/a.go"}}]}` + "\n"))
+		pw.CloseWithError(errors.New("connection reset"))
+	}()
+
+	var buf bytes.Buffer
+	printer := ui.New(&buf)
+	metrics := &RunMetrics{}
+
+	err := progressParser(pr, printer, time.Now(), metrics)
+
+	if err == nil {
+		t.Error("expected error from broken reader, got nil")
+	}
+	if metrics.ToolCalls.Load() != 1 {
+		t.Errorf("expected 1 tool call before error, got %d", metrics.ToolCalls.Load())
 	}
 }
 
@@ -236,6 +308,16 @@ func TestSanitizeGHA(t *testing.T) {
 			input: "Edit: /src/config::default.go",
 			want:  "Edit: /src/config: :default.go",
 		},
+		{
+			name:  "url-encoded newline",
+			input: "Read%0A::error::pwned",
+			want:  "Read : :error: :pwned",
+		},
+		{
+			name:  "url-encoded carriage return lowercase",
+			input: "Read%0d%0a::error::pwned",
+			want:  "Read  : :error: :pwned",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -253,12 +335,36 @@ func TestHeartbeatConcurrency(t *testing.T) {
 	start := time.Now()
 	done := make(chan struct{})
 
-	go runHeartbeat(printer, start, 10*time.Minute, done)
+	// Use a short-interval heartbeat to force actual concurrent writes.
+	ticker := time.NewTicker(1 * time.Millisecond)
+	go func() {
+		defer ticker.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-ticker.C:
+				printer.Heartbeat("heartbeat goroutine")
+			}
+		}
+	}()
 
-	// Write from main goroutine concurrently.
-	for i := 0; i < 50; i++ {
-		printer.Heartbeat("main goroutine")
-	}
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 100; i++ {
+			printer.Heartbeat("main goroutine")
+		}
+	}()
 
+	wg.Wait()
 	close(done)
+
+	_ = start // suppress unused warning
+
+	output := buf.String()
+	if !strings.Contains(output, "main goroutine") {
+		t.Errorf("expected main goroutine output, got: %s", output)
+	}
 }

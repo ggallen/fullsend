@@ -558,7 +558,9 @@ func runAgentWithProgress(sshConfigPath, sandboxName, claudeCmd string, timeout 
 	}
 	defer cancel()
 
-	progressParser(stdout, printer, start, metrics)
+	if parseErr := progressParser(stdout, printer, start, metrics); parseErr != nil {
+		fmt.Fprintf(os.Stderr, "  progress parser: %v\n", parseErr)
+	}
 
 	waitErr := cmd.Wait()
 	exitCode := -1
@@ -587,7 +589,7 @@ func runHeartbeat(printer *ui.Printer, start time.Time, timeout time.Duration, d
 			return
 		case <-ticker.C:
 			elapsed := time.Since(start).Truncate(time.Second)
-			remaining := (timeout - time.Since(start)).Truncate(time.Second)
+			remaining := (timeout - elapsed).Truncate(time.Second)
 			msg := fmt.Sprintf("Agent running (%s elapsed, %s remaining)", elapsed, remaining)
 			if isCI {
 				fmt.Fprintf(os.Stderr, "::notice::%s\n", sanitizeGHA(msg))

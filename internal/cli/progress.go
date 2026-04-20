@@ -9,11 +9,15 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 
 	"github.com/fullsend-ai/fullsend/internal/ui"
 )
 
-const maxPatternDisplay = 50
+const (
+	maxPatternDisplay = 50
+	maxPathDisplay    = 200
+)
 
 // streamEvent represents a single NDJSON event from Claude Code's stream-json output.
 type streamEvent struct {
@@ -63,7 +67,7 @@ type RunMetrics struct {
 // progress updates via the printer. It extracts tool names and safe context
 // (binary name for Bash, file path for Read/Write/Edit) without logging
 // potentially sensitive arguments.
-func progressParser(r io.Reader, printer *ui.Printer, start time.Time, metrics *RunMetrics) {
+func progressParser(r io.Reader, printer *ui.Printer, start time.Time, metrics *RunMetrics) error {
 	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 0, 256*1024), 1024*1024)
 
@@ -96,9 +100,7 @@ func progressParser(r io.Reader, printer *ui.Printer, start time.Time, metrics *
 		}
 	}
 
-	if err := scanner.Err(); err != nil {
-		fmt.Fprintf(os.Stderr, "  progress parser: %v\n", err)
-	}
+	return scanner.Err()
 }
 
 func parseAssistantToolUse(line []byte, printer *ui.Printer, start time.Time, metrics *RunMetrics, isCI bool) {
@@ -117,11 +119,13 @@ func parseAssistantToolUse(line []byte, printer *ui.Printer, start time.Time, me
 			continue
 		}
 		toolName := item.Name
+		var ctx string
 		if !allowedTools[toolName] {
 			toolName = "tool"
+		} else {
+			ctx = extractSafeContext(item.Name, item.Input)
 		}
 		count := metrics.ToolCalls.Add(1)
-		ctx := extractSafeContext(item.Name, item.Input)
 		emitToolProgress(printer, toolName, ctx, start, count, isCI)
 	}
 }
@@ -158,6 +162,9 @@ func extractSafeContext(toolName string, input json.RawMessage) string {
 		if err := json.Unmarshal(raw, &path); err != nil {
 			return ""
 		}
+		if len(path) > maxPathDisplay {
+			return path[:maxPathDisplay] + "…"
+		}
 		return path
 
 	case "Grep", "Glob":
@@ -169,8 +176,9 @@ func extractSafeContext(toolName string, input json.RawMessage) string {
 		if err := json.Unmarshal(raw, &pattern); err != nil {
 			return ""
 		}
-		if len(pattern) > maxPatternDisplay {
-			return pattern[:maxPatternDisplay] + "…"
+		if utf8.RuneCountInString(pattern) > maxPatternDisplay {
+			runes := []rune(pattern)
+			return string(runes[:maxPatternDisplay]) + "…"
 		}
 		return pattern
 	}
@@ -219,10 +227,14 @@ func emitToolProgress(printer *ui.Printer, toolName, context string, start time.
 }
 
 // sanitizeGHA strips characters that could inject GitHub Actions workflow
-// commands from untrusted sandbox output.
+// commands from untrusted sandbox output, including URL-encoded variants.
 func sanitizeGHA(s string) string {
 	s = strings.ReplaceAll(s, "\n", " ")
 	s = strings.ReplaceAll(s, "\r", " ")
+	s = strings.ReplaceAll(s, "%0A", " ")
+	s = strings.ReplaceAll(s, "%0a", " ")
+	s = strings.ReplaceAll(s, "%0D", " ")
+	s = strings.ReplaceAll(s, "%0d", " ")
 	s = strings.ReplaceAll(s, "::", ": :")
 	return s
 }
