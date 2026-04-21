@@ -118,20 +118,6 @@ func (s *ONNXGuardScanner) Scan(text string) ScanResult {
 	return ScanResult{Safe: true}
 }
 
-func (s *ONNXGuardScanner) scoreText(ctx context.Context, text string) (float64, error) {
-	result, err := s.pipeline.RunPipeline(ctx, []string{text})
-	if err != nil {
-		return 0, err
-	}
-
-	for _, o := range result.ClassificationOutputs[0] {
-		if o.Label == "INJECTION" {
-			return float64(o.Score), nil
-		}
-	}
-	return 0, fmt.Errorf("INJECTION label not found in pipeline output")
-}
-
 // maxSentenceChars caps the byte length of text chunks sent to DeBERTa.
 // DeBERTa-v3 has a 512-token limit; 1000 bytes is ~250-400 tokens for
 // ASCII/Latin, staying within the window with headroom.
@@ -146,6 +132,9 @@ func splitLongSentences(sents []string) []string {
 		}
 		stride := maxSentenceChars / 2
 		for start := 0; start < len(s); start += stride {
+			for start > 0 && start < len(s) && !utf8.RuneStart(s[start]) {
+				start++
+			}
 			end := start + maxSentenceChars
 			if end >= len(s) {
 				result = append(result, s[start:])
@@ -185,10 +174,18 @@ func (s *ONNXGuardScanner) maxSentenceScore(ctx context.Context, sents []string)
 		}
 
 		for _, outputs := range result.ClassificationOutputs {
+			found := false
 			for _, o := range outputs {
-				if o.Label == "INJECTION" && float64(o.Score) > max {
-					max = float64(o.Score)
+				if o.Label == "INJECTION" {
+					found = true
+					if float64(o.Score) > max {
+						max = float64(o.Score)
+					}
+					break
 				}
+			}
+			if !found {
+				return 0, fmt.Errorf("INJECTION label not found in pipeline output")
 			}
 		}
 
