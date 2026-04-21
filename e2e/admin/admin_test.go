@@ -226,8 +226,8 @@ func runFullInstall(t *testing.T, env *e2eEnv) ([]layers.AgentCredentials, *conf
 				Name: appCreds.Name,
 				Slug: appCreds.Slug,
 			},
-			PEM:   appCreds.PEM,
-			AppID: appCreds.AppID,
+			PEM:      appCreds.PEM,
+			ClientID: appCreds.ClientID,
 		})
 
 		registerAppCleanup(t, env.page, appCreds.Slug, env.screenshotDir)
