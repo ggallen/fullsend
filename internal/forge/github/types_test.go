@@ -68,6 +68,7 @@ func TestAgentAppConfig_Review(t *testing.T) {
 	assert.Equal(t, "write", cfg.Permissions.PullRequests)
 	assert.Equal(t, "read", cfg.Permissions.Contents)
 	assert.Equal(t, "read", cfg.Permissions.Checks)
+	assert.Equal(t, "read", cfg.Permissions.Issues)
 
 	assert.Contains(t, cfg.Events, "pull_request")
 	assert.Contains(t, cfg.Events, "pull_request_review")

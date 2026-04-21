@@ -96,6 +96,7 @@ func AgentAppConfig(org, role string) AppConfig {
 			PullRequests: "write",
 			Contents:     "read",
 			Checks:       "read",
+			Issues:       "read",
 		}
 		base.Events = []string{"pull_request", "pull_request_review"}
 
