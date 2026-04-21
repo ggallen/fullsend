@@ -1,6 +1,7 @@
 package scaffold
 
 import (
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -97,6 +98,9 @@ func TestCodeWorkflowContent(t *testing.T) {
 	assert.Contains(t, s, "pre-code.sh")
 	assert.Contains(t, s, "PUSH_TOKEN")
 	assert.Contains(t, s, "github-app")
+	assert.Contains(t, s, "sandbox-token")
+	assert.Contains(t, s, "push-token")
+	assert.Contains(t, s, "permission-contents: read")
 }
 
 func TestCodeHarnessContent(t *testing.T) {
@@ -116,6 +120,15 @@ func TestScanSecretsContent(t *testing.T) {
 	s := string(content)
 	assert.Contains(t, s, "gitleaks")
 	assert.Contains(t, s, "scan-secrets")
+}
+
+func TestScanSecretsImageMatchesScaffold(t *testing.T) {
+	imageContent, err := os.ReadFile("../../images/code/scan-secrets")
+	require.NoError(t, err)
+	scaffoldContent, err := FullsendRepoFile("scripts/scan-secrets")
+	require.NoError(t, err)
+	assert.Equal(t, string(imageContent), string(scaffoldContent),
+		"images/code/scan-secrets must stay in sync with scaffold scripts/scan-secrets")
 }
 
 func TestSetupAgentEnvContent(t *testing.T) {

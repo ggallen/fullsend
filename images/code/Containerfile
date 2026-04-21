@@ -92,8 +92,7 @@ RUN curl -fsSL \
 ARG PRECOMMIT_VERSION=4.5.1
 ARG GITLINT_VERSION=0.19.1
 RUN pip install "pre-commit==${PRECOMMIT_VERSION}" "gitlint-core==${GITLINT_VERSION}" 2>/dev/null \
-    || pip3 install "pre-commit==${PRECOMMIT_VERSION}" "gitlint-core==${GITLINT_VERSION}" 2>/dev/null \
-    || true
+    || pip3 install "pre-commit==${PRECOMMIT_VERSION}" "gitlint-core==${GITLINT_VERSION}"
 # The venv's bin dir (/sandbox/.venv/bin) is not on PATH inside the
 # sandbox Bash shell. Symlink the binaries into /usr/local/bin so the
 # agent can find them without PATH manipulation.
