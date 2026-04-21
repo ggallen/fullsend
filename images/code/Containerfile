@@ -8,8 +8,8 @@
 # The base image already provides Claude Code, rsync, tirith, and LLM Guard.
 # See images/sandbox/Containerfile in fullsend-ai/fullsend for the base definition.
 #
-# This image is built AUTOMATICALLY by .github/workflows/build-images.yml
-# on every push to main that touches images/code/Containerfile.
+# This image is built AUTOMATICALLY by .github/workflows/sandbox-image.yml
+# (build-code job) on every push to main that touches images/code/.
 # You can also trigger it manually via workflow_dispatch.
 #
 # Published to: ghcr.io/fullsend-ai/fullsend-code:latest
