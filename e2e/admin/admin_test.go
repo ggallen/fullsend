@@ -153,6 +153,14 @@ func TestAdminInstallUninstall(t *testing.T) {
 	verifyInstalled(t, env, orgCfg, enabledRepos, agentCreds)
 
 	// =========================================
+	// Phase 2.25: Merge enrollment PR
+	// =========================================
+	// The enrollment PR must be merged before unenrollment can work (the shim
+	// must exist on the default branch for the removal PR to make sense).
+	t.Log("=== Phase 2.25: Merge Enrollment PR ===")
+	mergeEnrollmentPR(t, env)
+
+	// =========================================
 	// Phase 2.5: Triage dispatch smoke test
 	// =========================================
 	if os.Getenv("E2E_HALFSEND_VERTEX_KEY") != "" {
@@ -528,18 +536,20 @@ func vendorBinaryForE2E(t *testing.T, env *e2eEnv) {
 	t.Log("Vendored binary uploaded successfully")
 }
 
-func runTriageDispatchSmokeTest(t *testing.T, env *e2eEnv) {
+// mergeEnrollmentPR finds and merges the enrollment PR for test-repo so the
+// shim workflow is active on the default branch. This must run before both
+// the triage smoke test and the unenrollment test.
+func mergeEnrollmentPR(t *testing.T, env *e2eEnv) {
 	t.Helper()
 	ctx := context.Background()
 
-	// Find and merge the enrollment PR so the shim workflow becomes active.
 	prs, err := env.client.ListRepoPullRequests(ctx, testOrg, testRepo)
 	require.NoError(t, err, "listing PRs for %s", testRepo)
 
 	var enrollmentPR *forge.ChangeProposal
 	for _, pr := range prs {
 		if strings.Contains(pr.Title, "fullsend") {
-			cp := pr // avoid loop variable capture
+			cp := pr
 			enrollmentPR = &cp
 			break
 		}
@@ -552,6 +562,12 @@ func runTriageDispatchSmokeTest(t *testing.T, env *e2eEnv) {
 
 	// Wait for GitHub to process the merge.
 	time.Sleep(5 * time.Second)
+	t.Log("Enrollment PR merged")
+}
+
+func runTriageDispatchSmokeTest(t *testing.T, env *e2eEnv) {
+	t.Helper()
+	ctx := context.Background()
 
 	// File a test issue to trigger the shim workflow.
 	issueTitle := fmt.Sprintf("e2e-triage-test-%s", env.runID)
