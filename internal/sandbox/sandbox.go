@@ -17,8 +17,8 @@ const (
 	// SandboxClaudeConfig is the Claude config directory inside the sandbox.
 	SandboxClaudeConfig = "/tmp/claude-config" //nolint:gosec // not a credential
 
-	createTimeout   = 65 * time.Second
-	readyTimeout    = 60 * time.Second
+	createTimeout   = 3 * time.Minute
+	readyTimeout    = 2 * time.Minute
 	readyPoll       = 2 * time.Second
 	transferTimeout = 5 * time.Minute
 )
