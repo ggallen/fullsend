@@ -76,7 +76,7 @@ jobs:
         id: review-token
         uses: actions/create-github-app-token@v3
         with:
-          app-id: ${{ vars.FULLSEND_REVIEW_APP_ID }}
+          client-id: ${{ vars.FULLSEND_REVIEW_CLIENT_ID }}
           private-key: ${{ secrets.FULLSEND_REVIEW_APP_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
           repositories: ${{ steps.repo-parts.outputs.name }}
@@ -113,13 +113,16 @@ jobs:
           REVIEW_CLOUD_ML_REGION: ${{ vars.FULLSEND_GCP_REGION }}
         run: bash .github/scripts/setup-agent-env.sh
 
+      - name: Install validation dependencies
+        run: pip install --quiet "jsonschema>=4.18.0"
+
       - name: Run review agent
         uses: ./.github/actions/fullsend
         env:
           GITHUB_ISSUE_URL: ${{ fromJSON(inputs.event_payload).issue.html_url }}
-          GITHUB_PR_URL: ${{ fromJSON(inputs.event_payload).pull_request.html_url }}
+          GITHUB_PR_URL: ${{ fromJSON(inputs.event_payload).pull_request.html_url || fromJSON(inputs.event_payload).issue.html_url }}
           REVIEW_TOKEN: ${{ steps.review-token.outputs.token }}
           REPO_FULL_NAME: ${{ inputs.source_repo }}
-          PR_NUMBER: ${{ fromJSON(inputs.event_payload).pull_request.number }}
+          PR_NUMBER: ${{ fromJSON(inputs.event_payload).pull_request.number || fromJSON(inputs.event_payload).issue.number }}
         with:
           agent: review
