@@ -41,7 +41,7 @@ For each role, the setup runner (`appsetup.Setup.Run`):
 3. **If no matching installation exists:** run the **manifest flow** (local callback server, browser, exchange of manifest code for credentials), then **ensure** the app is installed on the org:
    - If not yet installed, print the GitHub “install app” URL (`https://github.com/apps/<slug>/installations/new`), optionally open the browser, wait for the user to confirm (Enter), then re-list installations and **fail** if the app still does not appear for the org.
 
-**Out of scope for this spec:** Persisting OAuth **client_secret** or **webhook_secret** from the manifest response into `.fullsend`. Current code stores only the **PEM** and **numeric App ID** in the repo (§5).
+**Out of scope for this spec:** Persisting OAuth **client_secret** or **webhook_secret** from the manifest response into `.fullsend`. Current code stores only the **PEM** and **Client ID** in the repo (§5).
 
 ## 5. Repository secrets and variables (credential surface v1)
 
@@ -50,13 +50,13 @@ All of the following are **repository-level** Actions secrets and variables on *
 | Kind     | Name pattern                          | Value | Layer |
 |----------|----------------------------------------|-------|-------|
 | Secret   | `FULLSEND_<ROLE>_APP_PRIVATE_KEY`      | PEM text of the GitHub App private key | secrets |
-| Variable | `FULLSEND_<ROLE>_APP_ID`               | Decimal string of the GitHub App numeric ID | secrets |
+| Variable | `FULLSEND_<ROLE>_CLIENT_ID`            | GitHub App Client ID (e.g. `Iv23_...`), per [GitHub recommendation](https://github.blog/changelog/2024-05-01-github-apps-can-now-use-the-client-id-to-fetch-installation-tokens/) | secrets |
 | Secret   | `FULLSEND_GCP_SA_KEY_JSON`       | GCP service account key JSON (when inference provider is `vertex`) | inference |
 | Secret   | `FULLSEND_GCP_PROJECT_ID`              | GCP project identifier (when inference provider is `vertex`) | inference |
 | Variable | `FULLSEND_GCP_REGION`                  | GCP region for Vertex AI (e.g. `us-central1`) | inference |
 
 - `<ROLE>` is the agent role in **ASCII uppercase** (e.g. `FULLSEND_TRIAGE_APP_PRIVATE_KEY`).
-- For each role processed in install, if PEM is non-empty, the implementation **must** create/update the secret and variable as above; if PEM is empty (reuse path), the implementation **must** skip writing that role’s secret/variable.
+- For each role processed in install, if PEM is non-empty, the implementation **must** create/update the secret; if PEM is empty (reuse path), the implementation **must** skip writing that role’s secret. The Client ID variable is **always** written (even on reuse) to ensure it stays current.
 - Inference secrets are only created when an inference provider is configured in `config.yaml` (see [ADR 0011](../adr-0011-org-config-yaml/SPEC.md)). When `inference.provider` is `vertex`, the implementation **must** store both `FULLSEND_GCP_SA_KEY_JSON` and `FULLSEND_GCP_PROJECT_ID`.
 
 ## 6. Analyze / health semantics for the secrets layer

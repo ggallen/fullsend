@@ -110,7 +110,7 @@ Steps follow CLI **install** ordering: **`.fullsend` / config** → **agent GitH
 ### Exception — agent GitHub Apps
 
 - App creation / user confirmation on **github.com** may **interrupt** the wizard; this is **expected** and **not** subject to “review before any GitHub interaction.”
-- **Staging:** after GitHub steps, the SPA may persist **intermediate credentials** (e.g. app id, slug, PEM) in **`localStorage`** on the **current origin** to **resume** the wizard.
+- **Staging:** after GitHub steps, the SPA may persist **intermediate credentials** (e.g. client id, slug, PEM) in **`localStorage`** on the **current origin** to **resume** the wizard.
 - **Policy:** clear staging on **success**, **cancel**, **sign-out**, or documented **abandon** behavior; store **only** necessary fields; never put secrets in URLs or logs.
 - **Final review** still applies to **bulk apply** to the org’s fullsend installation (secrets to GitHub, config/workflow/enrollment changes).
 

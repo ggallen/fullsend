@@ -144,4 +144,7 @@ type Client interface {
 
 	// App installation operations
 	ListOrgInstallations(ctx context.Context, org string) ([]Installation, error)
+
+	// GetAppClientID returns the Client ID for a GitHub App identified by slug.
+	GetAppClientID(ctx context.Context, slug string) (string, error)
 }

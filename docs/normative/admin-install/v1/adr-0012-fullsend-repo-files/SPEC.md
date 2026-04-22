@@ -143,7 +143,7 @@ The following are managed via the forge API, not as committed files in
   `FULLSEND_<ROLE>_APP_PRIVATE_KEY` (PEM material), where `<ROLE>` is the
   uppercased role string (`SecretsLayer`).
 - **Repository variables** — one per role, name pattern
-  `FULLSEND_<ROLE>_APP_ID` (string app id).
+  `FULLSEND_<ROLE>_CLIENT_ID` (GitHub App Client ID).
 
 **Per-repository enrollment** (for example `.github/workflows/fullsend.yaml` in
 application repos) is performed by `EnrollmentLayer` and is intentionally not

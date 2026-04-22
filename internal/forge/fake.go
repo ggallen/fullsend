@@ -59,6 +59,9 @@ type FakeClient struct {
 	TokenScopes       []string                    // scopes returned by GetTokenScopes
 	VariablesExist    map[string]bool             // key: "owner/repo/name"
 
+	// App client IDs for GetAppClientID
+	AppClientIDs map[string]string // key: app slug → client ID
+
 	// Org-level secret state
 	OrgSecrets       map[string]bool    // key: "org/name"
 	OrgSecretRepoIDs map[string][]int64 // key: "org/name" → repo IDs
@@ -540,6 +543,22 @@ func (f *FakeClient) ListOrgInstallations(_ context.Context, _ string) ([]Instal
 	}
 
 	return f.Installations, nil
+}
+
+func (f *FakeClient) GetAppClientID(_ context.Context, slug string) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if e := f.err("GetAppClientID"); e != nil {
+		return "", e
+	}
+
+	if f.AppClientIDs != nil {
+		if id, ok := f.AppClientIDs[slug]; ok {
+			return id, nil
+		}
+	}
+	return "", fmt.Errorf("%w: app %s", ErrNotFound, slug)
 }
 
 func (f *FakeClient) CreateOrgSecret(_ context.Context, org, name, value string, selectedRepoIDs []int64) error {

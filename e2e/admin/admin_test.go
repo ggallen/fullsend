@@ -226,8 +226,8 @@ func runFullInstall(t *testing.T, env *e2eEnv) ([]layers.AgentCredentials, *conf
 				Name: appCreds.Name,
 				Slug: appCreds.Slug,
 			},
-			PEM:   appCreds.PEM,
-			AppID: appCreds.AppID,
+			PEM:      appCreds.PEM,
+			ClientID: appCreds.ClientID,
 		})
 
 		registerAppCleanup(t, env.page, appCreds.Slug, env.screenshotDir)
@@ -412,7 +412,7 @@ func verifyInstalled(t *testing.T, env *e2eEnv, orgCfg *config.OrgConfig, enable
 		assert.NoError(t, err, "checking secret %s", secretName)
 		assert.True(t, exists, "secret %s should exist", secretName)
 
-		varName := fmt.Sprintf("FULLSEND_%s_APP_ID", strings.ToUpper(role))
+		varName := fmt.Sprintf("FULLSEND_%s_CLIENT_ID", strings.ToUpper(role))
 		exists, err = env.client.RepoVariableExists(ctx, testOrg, forge.ConfigRepoName, varName)
 		assert.NoError(t, err, "checking variable %s", varName)
 		assert.True(t, exists, "variable %s should exist", varName)

@@ -137,7 +137,7 @@ The workflow reads `config.yaml`, iterates repos, and for each:
 - Check if the shim workflow exists.
 - If present: create branch `fullsend/offboard`, add a commit removing the shim, open a PR titled "Disconnect from fullsend agent pipeline".
 
-**Identity:** The workflow authenticates using the `fullsend` role's GitHub App (`FULLSEND_FULLSEND_APP_PRIVATE_KEY` + `FULLSEND_FULLSEND_APP_ID`) to generate an installation token. This is the admin/bootstrap persona — it has `contents: write` and `pull-requests: write` on target repos.
+**Identity:** The workflow authenticates using the `fullsend` role's GitHub App (`FULLSEND_FULLSEND_APP_PRIVATE_KEY` + `FULLSEND_FULLSEND_CLIENT_ID`) to generate an installation token. This is the admin/bootstrap persona — it has `contents: write` and `pull-requests: write` on target repos.
 
 **Concurrency:** `concurrency: { group: repo-maintenance, cancel-in-progress: false }` — only one reconciliation runs at a time; new pushes queue rather than cancel.
 

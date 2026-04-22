@@ -101,7 +101,7 @@ func TestCodeWorkflowContent(t *testing.T) {
 	require.NoError(t, err)
 	s := string(content)
 	assert.Contains(t, s, "workflow_dispatch")
-	assert.Contains(t, s, "FULLSEND_CODER_APP_ID")
+	assert.Contains(t, s, "FULLSEND_CODER_CLIENT_ID")
 	assert.Contains(t, s, "pre-code.sh")
 	assert.Contains(t, s, "PUSH_TOKEN")
 	assert.Contains(t, s, "github-app")

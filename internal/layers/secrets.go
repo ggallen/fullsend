@@ -13,8 +13,8 @@ import (
 // AgentCredentials extends AgentEntry with app credentials.
 type AgentCredentials struct {
 	config.AgentEntry
-	PEM   string
-	AppID int
+	PEM      string
+	ClientID string
 }
 
 // SecretsLayer manages agent app secrets and variables in the .fullsend repo.
@@ -56,26 +56,23 @@ func (s *SecretsLayer) RequiredScopes(op Operation) []string {
 	}
 }
 
-// Install stores agent app private keys as repo secrets and app IDs as
+// Install stores agent app private keys as repo secrets and client IDs as
 // repo variables in the .fullsend config repo.
 func (s *SecretsLayer) Install(ctx context.Context) error {
 	for _, agent := range s.agents {
-		if agent.PEM == "" {
-			s.ui.StepInfo(fmt.Sprintf("skipping %s (reusing existing app credentials)", agent.Role))
-			continue
+		if agent.PEM != "" {
+			sName := secretName(agent.Role)
+			s.ui.StepStart(fmt.Sprintf("storing private key for %s", agent.Role))
+			if err := s.client.CreateRepoSecret(ctx, s.org, forge.ConfigRepoName, sName, agent.PEM); err != nil {
+				s.ui.StepFail(fmt.Sprintf("failed to store secret %s", sName))
+				return fmt.Errorf("creating secret %s: %w", sName, err)
+			}
+			s.ui.StepDone(fmt.Sprintf("stored secret %s", sName))
 		}
-
-		sName := secretName(agent.Role)
-		s.ui.StepStart(fmt.Sprintf("storing private key for %s", agent.Role))
-		if err := s.client.CreateRepoSecret(ctx, s.org, forge.ConfigRepoName, sName, agent.PEM); err != nil {
-			s.ui.StepFail(fmt.Sprintf("failed to store secret %s", sName))
-			return fmt.Errorf("creating secret %s: %w", sName, err)
-		}
-		s.ui.StepDone(fmt.Sprintf("stored secret %s", sName))
 
 		vName := variableName(agent.Role)
-		s.ui.StepStart(fmt.Sprintf("storing app ID for %s", agent.Role))
-		if err := s.client.CreateOrUpdateRepoVariable(ctx, s.org, forge.ConfigRepoName, vName, fmt.Sprintf("%d", agent.AppID)); err != nil {
+		s.ui.StepStart(fmt.Sprintf("storing client ID for %s", agent.Role))
+		if err := s.client.CreateOrUpdateRepoVariable(ctx, s.org, forge.ConfigRepoName, vName, agent.ClientID); err != nil {
 			s.ui.StepFail(fmt.Sprintf("failed to store variable %s", vName))
 			return fmt.Errorf("creating variable %s: %w", vName, err)
 		}
@@ -149,5 +146,5 @@ func secretName(role string) string {
 }
 
 func variableName(role string) string {
-	return fmt.Sprintf("FULLSEND_%s_APP_ID", strings.ToUpper(role))
+	return fmt.Sprintf("FULLSEND_%s_CLIENT_ID", strings.ToUpper(role))
 }

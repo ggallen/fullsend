@@ -96,6 +96,9 @@ func TestSetup_ExistingApp_SecretExists_AutoReuse(t *testing.T) {
 		Installations: []forge.Installation{
 			{ID: 100, AppID: 10, AppSlug: "myorg-fullsend"},
 		},
+		AppClientIDs: map[string]string{
+			"myorg-fullsend": "Iv1.fullsend123",
+		},
 	}
 	prompter := &fakePrompter{}
 	browser := newFakeBrowser()
@@ -112,6 +115,7 @@ func TestSetup_ExistingApp_SecretExists_AutoReuse(t *testing.T) {
 	// Should return credentials signaling reuse (empty PEM).
 	assert.Equal(t, 10, creds.AppID)
 	assert.Equal(t, "myorg-fullsend", creds.Slug)
+	assert.Equal(t, "Iv1.fullsend123", creds.ClientID)
 	assert.Empty(t, creds.PEM, "PEM should be empty to signal reuse")
 	// Should NOT have prompted — auto-reuse is silent.
 	assert.False(t, prompter.confirmCalled, "should not prompt for reuse")
@@ -121,6 +125,9 @@ func TestSetup_ExistingApp_NoSecret(t *testing.T) {
 	client := &forge.FakeClient{
 		Installations: []forge.Installation{
 			{ID: 100, AppID: 10, AppSlug: "myorg-triage"},
+		},
+		AppClientIDs: map[string]string{
+			"myorg-triage": "Iv1.triage123",
 		},
 	}
 	prompter := &fakePrompter{}
@@ -137,10 +144,34 @@ func TestSetup_ExistingApp_NoSecret(t *testing.T) {
 	assert.Contains(t, err.Error(), "private key")
 }
 
+func TestSetup_ExistingApp_ClientIDLookupFails(t *testing.T) {
+	client := &forge.FakeClient{
+		Installations: []forge.Installation{
+			{ID: 100, AppID: 10, AppSlug: "myorg-fullsend"},
+		},
+		// No AppClientIDs entry — GetAppClientID will return ErrNotFound.
+	}
+	prompter := &fakePrompter{}
+	browser := newFakeBrowser()
+	printer := ui.New(&discardWriter{})
+
+	s := NewSetup(client, prompter, browser, printer).
+		WithSecretExists(func(_ string) (bool, error) {
+			return true, nil
+		})
+
+	_, err := s.Run(context.Background(), "myorg", "fullsend")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "client ID")
+}
+
 func TestSetup_KnownSlug_Match(t *testing.T) {
 	client := &forge.FakeClient{
 		Installations: []forge.Installation{
 			{ID: 200, AppID: 20, AppSlug: "custom-slug-name"},
+		},
+		AppClientIDs: map[string]string{
+			"custom-slug-name": "Iv1.custom123",
 		},
 	}
 	prompter := &fakePrompter{}
@@ -158,6 +189,7 @@ func TestSetup_KnownSlug_Match(t *testing.T) {
 
 	assert.Equal(t, 20, creds.AppID)
 	assert.Equal(t, "custom-slug-name", creds.Slug)
+	assert.Equal(t, "Iv1.custom123", creds.ClientID)
 	assert.Empty(t, creds.PEM)
 	assert.False(t, prompter.confirmCalled, "should not prompt for reuse")
 }

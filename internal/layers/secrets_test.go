@@ -27,12 +27,12 @@ func twoAgents() []AgentCredentials {
 		{
 			AgentEntry: config.AgentEntry{Role: "fullsend", Name: "FullsendBot", Slug: "fullsend-bot"},
 			PEM:        "-----BEGIN RSA PRIVATE KEY-----\nfullsend-key\n-----END RSA PRIVATE KEY-----",
-			AppID:      111,
+			ClientID: "Iv1.abc111",
 		},
 		{
 			AgentEntry: config.AgentEntry{Role: "triage", Name: "TriageBot", Slug: "triage-bot"},
 			PEM:        "-----BEGIN RSA PRIVATE KEY-----\ntriage-key\n-----END RSA PRIVATE KEY-----",
-			AppID:      222,
+			ClientID: "Iv1.abc222",
 		},
 	}
 }
@@ -68,13 +68,13 @@ func TestSecretsLayer_Install_StoresSecrets(t *testing.T) {
 
 	assert.Equal(t, "test-org", client.Variables[0].Owner)
 	assert.Equal(t, ".fullsend", client.Variables[0].Repo)
-	assert.Equal(t, "FULLSEND_FULLSEND_APP_ID", client.Variables[0].Name)
-	assert.Equal(t, "111", client.Variables[0].Value)
+	assert.Equal(t, "FULLSEND_FULLSEND_CLIENT_ID", client.Variables[0].Name)
+	assert.Equal(t, "Iv1.abc111", client.Variables[0].Value)
 
 	assert.Equal(t, "test-org", client.Variables[1].Owner)
 	assert.Equal(t, ".fullsend", client.Variables[1].Repo)
-	assert.Equal(t, "FULLSEND_TRIAGE_APP_ID", client.Variables[1].Name)
-	assert.Equal(t, "222", client.Variables[1].Value)
+	assert.Equal(t, "FULLSEND_TRIAGE_CLIENT_ID", client.Variables[1].Name)
+	assert.Equal(t, "Iv1.abc222", client.Variables[1].Value)
 }
 
 func TestSecretsLayer_Install_SkipsEmptyPEM(t *testing.T) {
@@ -83,12 +83,12 @@ func TestSecretsLayer_Install_SkipsEmptyPEM(t *testing.T) {
 		{
 			AgentEntry: config.AgentEntry{Role: "fullsend", Name: "FullsendBot", Slug: "fullsend-bot"},
 			PEM:        "-----BEGIN RSA PRIVATE KEY-----\nfullsend-key\n-----END RSA PRIVATE KEY-----",
-			AppID:      111,
+			ClientID:   "Iv1.abc111",
 		},
 		{
 			AgentEntry: config.AgentEntry{Role: "triage", Name: "TriageBot", Slug: "triage-bot"},
 			PEM:        "", // empty — reused from existing app
-			AppID:      222,
+			ClientID:   "Iv1.abc222",
 		},
 	}
 	layer, _ := newSecretsLayer(t, client, agents)
@@ -96,13 +96,15 @@ func TestSecretsLayer_Install_SkipsEmptyPEM(t *testing.T) {
 	err := layer.Install(context.Background())
 	require.NoError(t, err)
 
-	// Only the first agent's secret should be created
+	// Only the first agent's secret should be created (PEM-gated)
 	require.Len(t, client.CreatedSecrets, 1)
 	assert.Equal(t, "FULLSEND_FULLSEND_APP_PRIVATE_KEY", client.CreatedSecrets[0].Name)
 
-	// Only the first agent's variable should be created
-	require.Len(t, client.Variables, 1)
-	assert.Equal(t, "FULLSEND_FULLSEND_APP_ID", client.Variables[0].Name)
+	// Both agents' variables should be created (client ID always stored)
+	require.Len(t, client.Variables, 2)
+	assert.Equal(t, "FULLSEND_FULLSEND_CLIENT_ID", client.Variables[0].Name)
+	assert.Equal(t, "FULLSEND_TRIAGE_CLIENT_ID", client.Variables[1].Name)
+	assert.Equal(t, "Iv1.abc222", client.Variables[1].Value)
 }
 
 func TestSecretsLayer_Install_Error(t *testing.T) {
@@ -138,8 +140,8 @@ func TestSecretsLayer_Analyze_AllPresent(t *testing.T) {
 			"test-org/.fullsend/FULLSEND_TRIAGE_APP_PRIVATE_KEY":   true,
 		},
 		VariablesExist: map[string]bool{
-			"test-org/.fullsend/FULLSEND_FULLSEND_APP_ID": true,
-			"test-org/.fullsend/FULLSEND_TRIAGE_APP_ID":   true,
+			"test-org/.fullsend/FULLSEND_FULLSEND_CLIENT_ID": true,
+			"test-org/.fullsend/FULLSEND_TRIAGE_CLIENT_ID":   true,
 		},
 	}
 	agents := twoAgents()
@@ -179,7 +181,7 @@ func TestSecretsLayer_Analyze_Partial(t *testing.T) {
 			// triage secret missing
 		},
 		VariablesExist: map[string]bool{
-			"test-org/.fullsend/FULLSEND_FULLSEND_APP_ID": true,
+			"test-org/.fullsend/FULLSEND_FULLSEND_CLIENT_ID": true,
 			// triage variable missing
 		},
 	}

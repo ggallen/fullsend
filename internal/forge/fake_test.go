@@ -256,6 +256,37 @@ func TestFakeClient_Installations(t *testing.T) {
 	assert.Equal(t, "fullsend-bot", installs[0].AppSlug)
 }
 
+func TestFakeClient_GetAppClientID(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("found", func(t *testing.T) {
+		fc := &FakeClient{
+			AppClientIDs: map[string]string{
+				"myorg-fullsend": "Iv1.abc123",
+			},
+		}
+		clientID, err := fc.GetAppClientID(ctx, "myorg-fullsend")
+		require.NoError(t, err)
+		assert.Equal(t, "Iv1.abc123", clientID)
+	})
+
+	t.Run("not found", func(t *testing.T) {
+		fc := &FakeClient{}
+		_, err := fc.GetAppClientID(ctx, "nonexistent")
+		require.Error(t, err)
+		assert.ErrorIs(t, err, ErrNotFound)
+	})
+
+	t.Run("error injection", func(t *testing.T) {
+		fc := &FakeClient{
+			Errors: map[string]error{"GetAppClientID": errors.New("api down")},
+		}
+		_, err := fc.GetAppClientID(ctx, "myorg-fullsend")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "api down")
+	})
+}
+
 func TestFakeClient_OrgSecretExists(t *testing.T) {
 	ctx := context.Background()
 

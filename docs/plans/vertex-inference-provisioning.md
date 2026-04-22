@@ -244,7 +244,7 @@ References the layer stack ordering inline. Update the installation model descri
 
 #### 5d. `docs/normative/admin-install/v1/adr-0014-github-apps-and-secrets/SPEC.md` — Extend credential surface
 
-Currently documents only GitHub App secrets (`FULLSEND_<ROLE>_APP_PRIVATE_KEY`, `FULLSEND_<ROLE>_APP_ID`). Add a new section or extend the secrets table to cover inference provider secrets stored on `.fullsend`:
+Currently documents only GitHub App secrets (`FULLSEND_<ROLE>_APP_PRIVATE_KEY`, `FULLSEND_<ROLE>_CLIENT_ID`). Add a new section or extend the secrets table to cover inference provider secrets stored on `.fullsend`:
 
 - `FULLSEND_GCP_SA_KEY_JSON` — GCP service account key JSON (repo secret)
 - `FULLSEND_GCP_PROJECT_ID` — GCP project identifier (repo secret)

@@ -147,7 +147,7 @@ func (s *Setup) Run(ctx context.Context, org, role string) (*AppCredentials, err
 	}
 
 	if found {
-		return s.handleExistingApp(inst, role)
+		return s.handleExistingApp(ctx, inst, role)
 	}
 
 	// No existing app found — run the manifest flow.
@@ -213,8 +213,13 @@ func (s *Setup) findExistingInstallation(
 //
 // When an existing app is found with valid credentials, it is reused
 // automatically. To get fresh apps, run uninstall first, then install.
-func (s *Setup) handleExistingApp(inst *forge.Installation, role string) (*AppCredentials, error) {
+func (s *Setup) handleExistingApp(ctx context.Context, inst *forge.Installation, role string) (*AppCredentials, error) {
 	s.ui.StepDone(fmt.Sprintf("Found existing app: %s (ID: %d)", inst.AppSlug, inst.AppID))
+
+	clientID, err := s.client.GetAppClientID(ctx, inst.AppSlug)
+	if err != nil {
+		return nil, fmt.Errorf("looking up client ID for %s: %w", inst.AppSlug, err)
+	}
 
 	if s.secretExists != nil {
 		exists, err := s.secretExists(role)
@@ -225,9 +230,10 @@ func (s *Setup) handleExistingApp(inst *forge.Installation, role string) (*AppCr
 		if exists {
 			s.ui.StepDone(fmt.Sprintf("Reusing existing app %s (credentials present)", inst.AppSlug))
 			return &AppCredentials{
-				AppID: inst.AppID,
-				Slug:  inst.AppSlug,
-				Name:  inst.AppSlug,
+				AppID:    inst.AppID,
+				Slug:     inst.AppSlug,
+				Name:     inst.AppSlug,
+				ClientID: clientID,
 				// Empty PEM signals reuse of existing credentials.
 			}, nil
 		}
@@ -244,9 +250,10 @@ func (s *Setup) handleExistingApp(inst *forge.Installation, role string) (*AppCr
 	// No secretExists function — can't check, assume reuse.
 	s.ui.StepDone(fmt.Sprintf("Reusing existing app %s", inst.AppSlug))
 	return &AppCredentials{
-		AppID: inst.AppID,
-		Slug:  inst.AppSlug,
-		Name:  inst.AppSlug,
+		AppID:    inst.AppID,
+		Slug:     inst.AppSlug,
+		Name:     inst.AppSlug,
+		ClientID: clientID,
 	}, nil
 }
 

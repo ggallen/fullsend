@@ -387,8 +387,8 @@ func runAppSetup(ctx context.Context, client forge.Client, printer *ui.Printer, 
 				Name: appCreds.Name,
 				Slug: appCreds.Slug,
 			},
-			PEM:   appCreds.PEM,
-			AppID: appCreds.AppID,
+			PEM:      appCreds.PEM,
+			ClientID: appCreds.ClientID,
 		})
 	}
 
