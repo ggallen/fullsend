@@ -94,7 +94,10 @@ for my $file (@ARGV) {
   close($fh);
 
   my $text = eval { decode("UTF-8", $raw, FB_CROAK) };
-  next if $@;
+  if ($@) {
+    printf STDERR "warning: %s is not valid UTF-8 — skipped\n", $file;
+    next;
+  }
 
   my $lineno = 0;
   for my $line (split /\r?\n/, $text) {
