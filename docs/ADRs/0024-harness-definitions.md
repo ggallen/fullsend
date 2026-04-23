@@ -1,6 +1,6 @@
 ---
-title: "22. Harness definitions and shared directory layout"
-status: Proposed
+title: "24. Harness definitions and shared directory layout"
+status: Accepted
 relates_to:
   - agent-architecture
   - agent-infrastructure
@@ -12,13 +12,13 @@ topics:
   - security
 ---
 
-# 22. Harness definitions and shared directory layout
+# 24. Harness definitions and shared directory layout
 
 Date: 2026-04-07
 
 ## Status
 
-Proposed
+Accepted
 
 ## Context
 
@@ -42,35 +42,50 @@ parts:
 7. **Tool servers** — host-side REST proxy servers that hold credentials and
    enforce scoping (e.g. GitHub proxy, Jira proxy).
 8. **Host files** — files on the host that must be copied into the sandbox
-   during bootstrap (e.g. GCP service account JSON, CA certificates, env
-   files). Paths may contain `${VAR}` references expanded from the host
-   environment. When the `expand` flag is set, the file *content* is also
-   expanded — this is how credential env files get their values resolved on
-   the host before being delivered to the sandbox.
-9. **Providers** — declarative definitions of OpenShell providers (e.g. Vertex
-   AI) that the runner reconciles against the gateway before sandbox creation.
-   This is how the sandbox gets LLM access.
-10. **Required environment variables** — the harness declares which env vars it
-    needs (names only). Values are provided by the CI workflow at runtime from
-    org secrets and event context, never hardcoded in the harness. This makes
-    the harness a **template** that the CI layer **instantiates**.
+   during bootstrap (e.g. CA certificates, env files, configuration). Paths
+   may contain `${VAR}` references expanded from the host environment. When
+   the `expand` flag is set, the file *content* is also expanded — this is
+   how env files with variable references get their values resolved on the
+   host before being delivered to the sandbox. Credential delivery should
+   use providers where possible; `host_files` is a workaround for auth flows
+   incompatible with the provider placeholder model.
+9. **Providers** — declarative definitions of
+   [OpenShell providers](https://docs.nvidia.com/openshell/sandboxes/manage-providers).
+   These protect credentials by exposing only placeholders to the agent and
+   substituting the real values at runtime in headers, path params, or query
+   params. For example, GitHub credentials can be injected this way. Note:
+   some credential flows (e.g. Vertex AI API auth from Claude) generate
+   credentials at runtime inside the agent process, which is incompatible
+   with the provider placeholder model — see
+   [vertex-auth-flow.md](https://github.com/fullsend-ai/experiments/blob/main/runner-hello-world/vertex-auth-flow.md)
+   for details on this limitation.
+10. **Required environment variables** *(planned — not yet implemented)* — the
+    harness declares which env vars it needs (names only). Values are provided
+    by the CI workflow at runtime from org secrets and event context, never
+    hardcoded in the harness. This makes the harness a **template** that the CI
+    layer **instantiates**. Currently, env var validation is handled in
+    pre-scripts rather than by the runner.
 11. **Runner environment variables** — key-value pairs available to pre/post
     scripts and the validation loop on the host side. Values may reference host
     variables via `${VAR}` expansion. Distinct from `required_env` (which is a
     contract) — `runner_env` carries configuration for the runner's own scripts.
 12. **Timeout** — a hard kill enforced by the runner.
-13. **Security scanning** *(optional)* — per-harness configuration of layered
-    prompt injection defenses. Host-side scanners run before sandbox creation
-    (context injection detection, SSRF validation, unicode normalization, secret
-    redaction, ML-based LLM Guard). Sandbox-side hooks run during agent
-    execution (Tirith terminal security, SSRF pre-tool checks, secret redaction
-    post-tool). Secure by default: omitting the block enables all scanners with
-    fail-closed semantics.
-14. **Validation loop** *(deferred — see Consequences)* — an optional
-    deterministic script that checks agent output and re-runs the agent with
-    feedback on failure. The full design (whether validation can invoke other
-    agents, sandbox boundary, observability implications) is tracked as a
-    separate ADR topic.
+13. **Security scanning** — layered prompt injection defenses enforced by
+    default and built into the `fullsend` CLI. Host-side scanners run before
+    sandbox creation (context injection detection, SSRF validation, unicode
+    normalization, secret redaction, ML-based LLM Guard). Sandbox-side
+    pre/post-tool hooks are installed into the Claude configuration during
+    bootstrap (Tirith terminal security, SSRF pre-tool checks, secret
+    redaction post-tool). Omitting the `security` block enables all scanners
+    with fail-closed semantics. Individual scanners can be toggled off
+    per-harness, but there is no global kill switch.
+14. **Validation loop** — an optional deterministic script that checks agent
+    output and re-runs the same agent with feedback on failure. The current
+    implementation supports re-running the previous agent with validation
+    output appended; it does not support invoking a different agent (e.g. a
+    review agent) as the validation step. Extending the loop to support
+    cross-agent patterns (code→review→code) is tracked in
+    [#234](https://github.com/fullsend-ai/fullsend/issues/234).
 
 Today these are scattered across workflow files, CLI arguments, and unspecified
 conventions. There is no single file — a **harness definition** — that ties
@@ -84,26 +99,25 @@ definition and executes a deterministic sequence:
 ┌───────────────────────────────────────────────────────────┐
 │  Runner reads harness/triage.yaml                         │
 ├───────────────────────────────────────────────────────────┤
-│  1. Validate required_env are present                     │
-│  2. Run pre_script OUTSIDE sandbox                        │
-│     (clone, checkout, gather context)                     │
-│  3. Ensure providers on gateway (if declared)             │
-│  4. Provision sandbox (--from image, or base; policy)     │
-│  5. Start tool servers on host                            │
-│  6. Bootstrap sandbox:                                    │
+│  1. Run pre_script OUTSIDE sandbox                        │
+│     (clone, checkout, gather context, validate env)       │
+│  2. Ensure providers on gateway (if declared)             │
+│  3. Provision sandbox (--from image; apply policy)        │
+│  4. Run security host scanners on context                 │
+│  5. Bootstrap sandbox:                                    │
 │     a. Copy agent definition, skills into sandbox         │
 │     b. Copy host_files (expand ${VAR} in paths/content)   │
-│     c. Copy tools_binaries (if no image)                  │
-│  7. Copy project code / agent_input into sandbox          │
-│  8. Launch agent runtime inside sandbox                   │
-│  9. Wait for agent to exit (or timeout)                   │
-│ 10. If validation_loop defined:                           │
+│     c. Install sandbox security hooks (Claude config)     │
+│  6. Copy project code / agent_input into target dir       │
+│  7. Launch Claude Code session inside sandbox              │
+│  8. Wait for agent to exit (or timeout)                   │
+│  9. If validation_loop defined:                           │
 │     a. Run validation script (on host)                    │
 │     b. If non-zero, re-run agent with feedback appended   │
 │     c. Repeat up to max_iterations                        │
-│ 11. Extract output files and transcripts                  │
-│ 12. Tear down sandbox and tool servers                    │
-│ 13. Run post_script OUTSIDE sandbox                       │
+│ 10. Extract output files and transcripts                  │
+│ 11. Tear down sandbox                                     │
+│ 12. Run post_script OUTSIDE sandbox                       │
 │     (push, PR creation, label transitions)                │
 └───────────────────────────────────────────────────────────┘
 ```
@@ -119,23 +133,17 @@ Multi-agent sequencing — for example, running a code agent then a review agent
 with a gate — belongs in the CI pipeline definition (GitHub Actions, Tekton,
 GitLab CI), not in the harness YAML. The runner's job is to run one agent well.
 
-Note: the "one executable" inside the sandbox could be a shell script that
-invokes Claude Code multiple times with different system prompts (e.g. a
-code→review→code loop). From the sandbox's perspective this is one process.
-From an observability perspective it produces multiple `.jsonl` transcripts,
-which complicates features like `/ci:continue-claude` and the JSONL trace
-exposure model
-([ADR 0021](0021-jsonl-reasoning-trace-exposure.md)). This pattern is
-supported but has trade-offs that should be weighed against CI-level
-orchestration.
+The `fullsend run` command launches a single Claude Code session inside the
+sandbox using the agent definition and model specified in the harness. The
+runner controls the exact invocation — there is no user-supplied "main script"
+inside the sandbox. JSONL reasoning traces produced by the agent session are
+extracted after completion per the policy in
+[ADR 0021](0021-jsonl-reasoning-trace-exposure.md).
 
-Tool provisioning has two paths. The preferred approach is a **pre-built
-container image** — the agent owner bakes everything (agent runtime, tool
-binaries, dependencies) into a single image, and the sandbox is created from
-it via `openshell create --from <image>`. This is simpler and faster. When a
-container image is not provided, the harness falls back to a **declared list
-of tool binaries** (`tools_binaries`) with optional sha256 digests that the
-runner fetches and copies into the sandbox before launch.
+Tool provisioning uses **pre-built container images** — the agent owner bakes
+everything (agent runtime, tool binaries, dependencies) into a single image,
+and the sandbox is created from it via `openshell create --from <image>`.
+Additional files can be delivered into the sandbox via `host_files`.
 
 The harness definition is the input to harness assembly
 ([#173](https://github.com/fullsend-ai/fullsend/issues/173)). It connects to
@@ -229,10 +237,6 @@ skills/             # Skill definitions (SKILL.md, following AgentSkills standar
   code-implementation/SKILL.md
   testing-conventions/SKILL.md
 
-tools/              # Binaries or pointers to downloadable binaries
-  ruff/
-  claude/
-
 env/                # Environment files delivered into the sandbox
   gcp-vertex.env    # May contain ${VAR} references expanded at bootstrap
   repo.env
@@ -319,9 +323,9 @@ agent: agents/<agent>.md
 model: <model-name>
 
 # Pre-built container image for the sandbox. When provided, the sandbox is
-# created via `openshell create --from <image>`, and tool binaries baked into
-# the image do not need to be listed in tools_binaries. This is the preferred
-# approach — it makes sandboxes self-contained and faster to provision.
+# created via `openshell create --from <image>`, with tool binaries and
+# dependencies baked in. This is the preferred approach — it makes sandboxes
+# self-contained and faster to provision.
 image: <registry>/<image>:<tag>
 
 # Full sandbox policy file covering network, filesystem, SSRF, process isolation.
@@ -332,21 +336,13 @@ policy: policies/<policy>.yaml
 skills:
   - skills/<skill-name>
 
-# Tool binaries or downloadable assets needed inside the sandbox.
-# Used when no container image is provided, or for tools not baked into the
-# image. sha256 digests should be checked when tools are fetched before launch.
-tools_binaries:
-  - name: <tool>
-    source: PATH                    # or a URL to a downloadable binary
-    sha256: <digest>                # verified before or after sandbox launch
-
-# Files on the host to copy into the sandbox during bootstrap. Src paths may
-# contain ${VAR} references expanded from the host environment. When expand
-# is true, the file content is also expanded — use this for env files that
-# contain variable references which must be resolved on the host (because the
-# sandbox does not have those variables set). This is the mechanism for
-# delivering credentials (e.g. GCP service account JSON) and resolved env
-# files into the sandbox.
+# Files on the host to copy into the sandbox during bootstrap. Primarily for
+# configuration (env files, CA certs). Src paths may contain ${VAR} references
+# expanded from the host environment. When expand is true, the file content is
+# also expanded — use this for env files that contain variable references which
+# must be resolved on the host. Credential delivery should use providers where
+# possible; host_files is a workaround for auth flows incompatible with the
+# provider placeholder model (e.g. GCP service account JSON for Vertex AI).
 host_files:
   - src: <host-path-or-${VAR}>      # host path, supports ${VAR} expansion
     dest: <sandbox-path>             # destination inside the sandbox
@@ -358,7 +354,11 @@ host_files:
 providers:
   - <provider-name>
 
-# Host-side REST proxy servers spawned before the agent starts, torn down after.
+# [PLANNED — not yet implemented] Host-side REST proxy servers spawned before
+# the agent starts, torn down after. The Harness struct parses and validates
+# this field, but no runtime code in fullsend currently starts, manages, or
+# tears down API servers. When implemented, ${HOST_VAR} expansion in env and
+# per-run bearer token authentication (per ADR-0017) will need careful scoping.
 api_servers:
   - name: <server-name>
     script: api-servers/<server>/<script>
@@ -383,12 +383,13 @@ validation_loop:
   max_iterations: 3                 # how many times the agent can retry
   feedback_mode: append             # append validation output to agent prompt
 
-# Environment variables this harness requires at runtime. The runner validates
-# all listed variables are present in the host environment before launch.
-# Values are provided by the CI workflow from org secrets, event context,
-# etc. — never hardcoded here. This makes the harness a reusable template.
-required_env:
-  - <VAR_NAME>
+# [PLANNED — not yet implemented] Environment variables this harness requires
+# at runtime. When implemented, the runner will validate all listed variables
+# are present in the host environment before launch. Values are provided by
+# the CI workflow from org secrets, event context, etc. — never hardcoded
+# here. Currently, env var validation is handled in pre-scripts.
+# required_env:
+#   - <VAR_NAME>
 
 # Key-value environment variables for host-side scripts (pre/post, validation).
 # Values may reference host variables via ${VAR} expansion. Distinct from
@@ -401,16 +402,13 @@ runner_env:
 timeout_minutes: 30
 
 # Security scanning configuration. Controls layered prompt injection defenses
-# that run at two points: host-side scanners before sandbox creation (context
-# injection detection, SSRF validation, unicode normalization, secret
-# redaction, ML-based LLM Guard) and sandbox-side hooks during agent execution
-# (Tirith terminal security, SSRF pre-tool checks, secret redaction post-tool).
-# Secure by default: omitting this block enables all scanners with
-# fail_mode: closed (scanner failure blocks the run). Set fail_mode: open to
-# allow the run to proceed when a scanner fails (useful during development,
-# not recommended for production). Individual scanners can be toggled off.
+# enforced by default. Host-side scanners run before sandbox creation; sandbox-
+# side pre/post-tool hooks are installed into the Claude configuration during
+# bootstrap. Omitting this block enables all scanners with fail_mode: closed.
+# There is no global kill switch — individual scanners can be toggled off, but
+# security cannot be disabled wholesale. If a full bypass is ever needed, it
+# should require an org-level override with audit logging, not a repo-level flag.
 security:
-  enabled: true                      # nil/omitted = true (secure by default)
   fail_mode: closed                  # "closed" (default) or "open"
   host_scanners:
     unicode_normalizer: true
@@ -477,11 +475,13 @@ timeout_minutes: 30
 
 The triage agent's policy (`readonly-with-web.yaml`) allows outbound HTTPS to
 the model provider and the GitHub proxy, but no filesystem writes outside the
-workspace. The `host_files` entries deliver GCP credentials and a resolved
-env file into the sandbox — the `expand: true` flag means `${VAR}` references
-in the env file content are expanded from the host environment before copying,
-so the sandbox receives concrete values without needing the host variables
-set inside it.
+workspace. The `host_files` entries deliver configuration (env files) and GCP
+credentials into the sandbox — the GCP credentials use `host_files` as a
+workaround because Vertex AI's auth flow is incompatible with the provider
+placeholder model. The `expand: true` flag means `${VAR}` references in the
+env file content are expanded from the host environment before copying, so
+the sandbox receives concrete values without needing the host variables set
+inside it.
 
 ### Example: code harness (with validation loop)
 
@@ -540,8 +540,8 @@ timeout_minutes: 120
 
 The code harness's policy (`code-write.yaml`) would include repo-specific
 egress (e.g. `pypi.org`, `proxy.golang.org`) alongside the baseline model
-provider endpoints. Since the image includes ruff and other tools pre-installed,
-`tools_binaries` is not needed here.
+provider endpoints. All tools (ruff, etc.) are pre-installed in the container
+image.
 
 ### Template instantiation: same harness, different workflows
 
@@ -617,24 +617,12 @@ This keeps the runner simple (one agent, one sandbox), gives each agent its
 own security boundary, and lets the CI platform handle sequencing, parallelism,
 and conditional execution.
 
-**Trade-off: CI-layer logic must be maintained per platform.** Placing
-orchestration in CI workflows means that multi-agent sequencing logic lives
-in GitHub Actions YAML, Tekton pipeline definitions, GitLab CI configs, etc.
-If fullsend supports multiple CI platforms, this logic must be duplicated or
-a renderer must produce platform-specific workflows from an intermediate
-representation. Ralph advocated for keeping the CI layer minimal — just the
-trigger and a single `fullsend` command — with multi-agent orchestration
-handled inside the entry point so it only needs to be written once. This ADR
-takes the CI-layer position because CI platforms already provide the
-sequencing primitives and the runner stays simpler, but the cross-platform
-maintenance cost is a real concern that may force revisiting this if fullsend
-expands beyond GitHub Actions.
-
 The code→review pattern (run the code agent, then a review agent as a gate,
-then loop back if review fails) can be expressed either through CI-level
-sequencing of separate harness invocations or through the `validation_loop`
-mechanism. The full design of `validation_loop` — whether it can invoke other
-agents and where those agents run — is deferred to a separate ADR.
+then loop back if review fails) can be expressed through CI-level sequencing
+of separate harness invocations. The `validation_loop` mechanism supports
+deterministic re-runs of the same agent but does not currently support
+invoking a different agent as the validation step — extending this is tracked
+in [#234](https://github.com/fullsend-ai/fullsend/issues/234).
 
 ## Consequences
 
@@ -656,25 +644,31 @@ agents and where those agents run — is deferred to a separate ADR.
 - **Pre/post scripts run outside the sandbox.** They handle privileged
   operations (push, PR creation) that the sandboxed agent cannot perform.
 - **`validation_loop` enables structured retry.** After the agent exits, a
-  validation script checks the output. Failed validation re-runs the agent with
-  feedback appended.
-- **`required_env` makes the harness a template.** The harness declares which
-  environment variables it needs (names only). The CI workflow provides values
-  from org secrets and event context. Different "instances" of the same agent
-  are created by different CI workflows providing different secret values —
-  not by duplicating harness files.
+  deterministic validation script checks the output. Failed validation re-runs
+  the same agent with the validation output appended as context. The current
+  implementation does not support invoking a different agent as the validation
+  step — extending this to cross-agent patterns is tracked in
+  [#234](https://github.com/fullsend-ai/fullsend/issues/234).
+- **`required_env` makes the harness a template** *(planned — not yet
+  implemented).* The harness declares which environment variables it needs
+  (names only). The CI workflow provides values from org secrets and event
+  context. Different "instances" of the same agent are created by different CI
+  workflows providing different secret values — not by duplicating harness
+  files. Currently, env var validation is handled in pre-scripts.
 - **Credentials never live in the harness YAML.** Credentials are stored in
-  org secrets (GitHub Actions secrets, Vault, etc.), injected by the CI
-  workflow, validated by the runner via `required_env`, and delivered to the
-  sandbox via `host_files` (for credential files like GCP service account
-  JSON) or used on the host to start tool servers (REST API proxies that
-  hold credentials outside the sandbox).
-- **`host_files` is the credential delivery mechanism.** The runner copies
-  files from the host into the sandbox during bootstrap. Paths support `${VAR}`
-  expansion from the host environment, and the `expand` flag resolves variable
-  references in file content before copying. This is how env files with
-  credential values and service account keys reach the sandbox without the
-  sandbox having direct access to host secrets.
+  org secrets (GitHub Actions secrets, Vault, etc.) and injected by the CI
+  workflow. The primary credential delivery mechanism is **providers** —
+  OpenShell providers expose only placeholders to the agent and substitute
+  real values at runtime, keeping credentials outside the sandbox. When
+  provider limitations prevent this (e.g. Vertex AI API auth flow), `host_files`
+  serves as a workaround to deliver credential files (like GCP service account
+  JSON) into the sandbox.
+- **`host_files` is for configuration delivery.** The runner copies files from
+  the host into the sandbox during bootstrap. Paths support `${VAR}` expansion
+  from the host environment, and the `expand` flag resolves variable references
+  in file content before copying. The primary use case is env files and
+  configuration; credential delivery via `host_files` is a workaround for
+  cases where providers cannot handle the auth flow.
 - **`runner_env` complements `required_env`.** `required_env` is the
   contract — a list of env var names the CI workflow must provide.
   `runner_env` is key-value configuration for host-side scripts (pre/post,
@@ -694,28 +688,34 @@ agents and where those agents run — is deferred to a separate ADR.
   agents (e.g. code then review with a gate) is expressed in CI workflow
   definitions using the platform's native primitives (`needs:` in GitHub
   Actions, task dependencies in Tekton, etc.). This keeps the runner simple
-  but means orchestration logic must be maintained per CI platform. If
-  fullsend expands beyond GitHub Actions, this logic will need to be
-  duplicated or generated from an intermediate representation — a concern
-  raised during design review. An alternative (a single `fullsend` command
-  that handles multi-agent orchestration internally) was proposed but deferred
-  in favor of getting single-agent execution working first.
-- **Pre-built container images are the preferred tool provisioning path.** The
-  harness `image` field creates the sandbox from a container image via
+  but means orchestration logic must be maintained per CI platform.
+- **CI-layer orchestration has a cross-platform maintenance cost.** Placing
+  multi-agent sequencing in CI workflows means that logic must be duplicated
+  or a renderer must produce platform-specific workflows from an intermediate
+  representation if fullsend expands beyond GitHub Actions. An alternative (a
+  single `fullsend` command that handles multi-agent orchestration internally)
+  was proposed during design review but deferred in favor of getting
+  single-agent execution working first. This trade-off may force revisiting
+  the approach if multi-platform support becomes a requirement.
+- **Pre-built container images are the tool provisioning path.** The harness
+  `image` field creates the sandbox from a container image via
   `openshell create --from <image>`, with tools, agent runtime, and
-  dependencies baked in. When no image is provided, `tools_binaries` declares
-  individual binaries the runner fetches and copies into the sandbox — this is
-  the fallback path, not the default.
-- **Security scanning is per-harness and secure by default.** Each harness can
-  configure layered prompt injection defenses — host-side scanners (unicode
+  dependencies baked in. Additional files can be delivered via `host_files`.
+  A `tools_binaries` field for declaring individual downloadable binaries
+  was considered during design but is not supported — container images plus
+  `host_files` cover the delivery use cases without the complexity of
+  per-binary download, verification, and TOCTOU concerns.
+- **Security scanning is per-harness, enforced by default, with no global kill
+  switch.** Layered prompt injection defenses — host-side scanners (unicode
   normalization, context injection detection, SSRF validation, secret
   redaction, ML-based LLM Guard) and sandbox-side hooks (Tirith terminal
-  security, SSRF pre-tool, secret redaction post-tool). Omitting the
-  `security` block enables all scanners with fail-closed semantics. Individual
-  scanners can be toggled off per-harness, and `fail_mode: open` allows runs
-  to proceed when scanners fail (useful during development). The inheritance
-  model applies: org-level security settings provide the baseline, and
-  per-repo overrides are subject to the protected-fields policy
+  security, SSRF pre-tool, secret redaction post-tool) — are built into the
+  `fullsend` CLI and enabled with fail-closed semantics by default. Individual
+  scanners can be toggled off per-harness for development, but there is no
+  global `enabled: false` switch. If a full bypass is ever needed, it should
+  require an org-level override with audit logging. The inheritance model
+  applies: org-level security settings provide the baseline, and per-repo
+  overrides are subject to the protected-fields policy
   ([#236](https://github.com/fullsend-ai/fullsend/issues/236)).
 - A JSON Schema for the harness YAML format is a natural follow-on.
 
@@ -724,16 +724,13 @@ agents and where those agents run — is deferred to a separate ADR.
 The following topics were discussed during the design of this ADR but
 intentionally deferred to keep scope manageable:
 
-- **Validation loop and code→review→code orchestration
-  ([#234](https://github.com/fullsend-ai/fullsend/issues/234)).** The
-  `validation_loop` field is included in the schema as an optional mechanism,
-  but the full design — whether the validation script can invoke another agent
-  (e.g. `fullsend run review`), whether that agent runs inside or outside the
-  sandbox, and the transcript/observability implications — was set aside to
-  focus on getting single-agent output working first. Both `main.sh` (a
-  shell script inside the sandbox that invokes Claude Code multiple times) and
-  `validation_loop` (a runner-level retry mechanism) were proposed; neither is
-  fully specified here.
+- **Cross-agent validation and code→review→code orchestration
+  ([#234](https://github.com/fullsend-ai/fullsend/issues/234)).** The basic
+  `validation_loop` (deterministic script reruns the same agent) is
+  implemented. The open design question is whether the validation step can
+  invoke a *different* agent (e.g. `fullsend run review` as the validator
+  for a code harness), where that agent runs, and the transcript/observability
+  implications.
 - **Schema versioning for harness definitions
   ([#235](https://github.com/fullsend-ai/fullsend/issues/235)).** Harness YAML
   files may need a `version` field for schema evolution (e.g. when fields are
