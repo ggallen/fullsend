@@ -763,7 +763,7 @@ func runUnenrollmentTest(t *testing.T, env *e2eEnv, orgCfg *config.OrgConfig, ag
 
 	var removalPR *forge.ChangeProposal
 	for _, pr := range prs {
-		if pr.Title == "Disconnect from fullsend agent pipeline" {
+		if pr.Title == "chore: disconnect from fullsend agent pipeline" {
 			cp := pr
 			removalPR = &cp
 			break

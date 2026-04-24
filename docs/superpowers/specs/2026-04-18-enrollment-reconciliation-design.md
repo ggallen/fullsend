@@ -32,7 +32,7 @@ The script runs in two phases.
 4. Create a removal branch `fullsend/offboard` from the default branch tip (create or force-update, same pattern as enrollment).
 5. Fetch the file SHA from the removal branch: `gh api repos/$ORG/$REPO/contents/$SHIM_PATH?ref=fullsend/offboard --jq .sha`. If the file is not found (404), skip — the shim was already removed.
 6. Delete `.github/workflows/fullsend.yaml` on the removal branch via the Contents API DELETE endpoint, passing the SHA.
-7. Open a removal PR titled "Disconnect from fullsend agent pipeline" with a body explaining the repo was disabled in config.yaml.
+7. Open a removal PR titled "chore: disconnect from fullsend agent pipeline" with a body explaining the repo was disabled in config.yaml.
 
 The summary adds an `Unenrolled` counter alongside `Enrolled`, `Skipped`, and `Failed`.
 
@@ -81,10 +81,10 @@ Pass both `enabledRepos` and `disabledRepos` when constructing `EnrollmentLayer`
 Extend the existing test with a new phase:
 
 - **Phase 2.5** (unchanged): Merge enrollment PR, create test issue, verify triage dispatch.
-- **Phase 2.75** (new): Set `test-repo` to `enabled: false` in config.yaml, run install, assert a removal PR exists on `test-repo` with title "Disconnect from fullsend agent pipeline", merge it, verify the shim no longer exists on the default branch.
+- **Phase 2.75** (new): Set `test-repo` to `enabled: false` in config.yaml, run install, assert a removal PR exists on `test-repo` with title "chore: disconnect from fullsend agent pipeline", merge it, verify the shim no longer exists on the default branch.
 - **Phase 3+** (unchanged): Uninstall, verify idempotency.
 
-**cleanup.go**: Must also delete the `fullsend/offboard` branch and close stale removal PRs titled "Disconnect from fullsend agent pipeline", mirroring the existing cleanup for `fullsend/onboard`.
+**cleanup.go**: Must also delete the `fullsend/offboard` branch and close stale removal PRs titled "chore: disconnect from fullsend agent pipeline", mirroring the existing cleanup for `fullsend/onboard`.
 
 ### Unit tests
 

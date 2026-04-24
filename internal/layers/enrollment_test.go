@@ -65,7 +65,7 @@ func TestEnrollmentLayer_Install_ReportsEnrollmentPRs(t *testing.T) {
 		},
 		PullRequests: map[string][]forge.ChangeProposal{
 			"test-org/repo-a": {
-				{Title: "Connect to fullsend agent pipeline", URL: "https://github.com/test-org/repo-a/pull/1"},
+				{Title: "chore: connect to fullsend agent pipeline", URL: "https://github.com/test-org/repo-a/pull/1"},
 			},
 		},
 	}
@@ -93,7 +93,7 @@ func TestEnrollmentLayer_Install_ReportsRemovalPRs(t *testing.T) {
 		},
 		PullRequests: map[string][]forge.ChangeProposal{
 			"test-org/repo-x": {
-				{Title: "Disconnect from fullsend agent pipeline", URL: "https://github.com/test-org/repo-x/pull/5"},
+				{Title: "chore: disconnect from fullsend agent pipeline", URL: "https://github.com/test-org/repo-x/pull/5"},
 			},
 		},
 	}

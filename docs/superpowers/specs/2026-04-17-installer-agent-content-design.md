@@ -130,12 +130,12 @@ The workflow reads `config.yaml`, iterates repos, and for each:
 
 **If `enabled: true`:**
 - Check if the shim workflow exists on the repo's default branch.
-- If missing: create branch `fullsend/onboard`, write the shim, open a PR titled "Connect to fullsend agent pipeline".
+- If missing: create branch `fullsend/onboard`, write the shim, open a PR titled "chore: connect to fullsend agent pipeline".
 - If present but outdated (content differs from current template): create branch `fullsend/update-shim`, write the updated shim, open a PR titled "Update fullsend shim workflow".
 
 **If `enabled: false` (or repo removed from config):**
 - Check if the shim workflow exists.
-- If present: create branch `fullsend/offboard`, add a commit removing the shim, open a PR titled "Disconnect from fullsend agent pipeline".
+- If present: create branch `fullsend/offboard`, add a commit removing the shim, open a PR titled "chore: disconnect from fullsend agent pipeline".
 
 **Identity:** The workflow authenticates using the `fullsend` role's GitHub App (`FULLSEND_FULLSEND_APP_PRIVATE_KEY` + `FULLSEND_FULLSEND_CLIENT_ID`) to generate an installation token. This is the admin/bootstrap persona — it has `contents: write` and `pull-requests: write` on target repos.
 

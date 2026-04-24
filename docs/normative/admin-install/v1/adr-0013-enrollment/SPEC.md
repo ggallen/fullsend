@@ -31,8 +31,8 @@ At run time the shim MUST resolve the config repository as `${{ github.repositor
 | Shim path | `.github/workflows/fullsend.yaml` |
 | Enrollment branch name | `fullsend/onboard` |
 | Unenrollment branch name | `fullsend/offboard` |
-| Enrollment PR title | `Connect to fullsend agent pipeline` |
-| Unenrollment PR title | `Disconnect from fullsend agent pipeline` |
+| Enrollment PR title | `chore: connect to fullsend agent pipeline` |
+| Unenrollment PR title | `chore: disconnect from fullsend agent pipeline` |
 | Dispatch workflow files (in `.fullsend`) | `triage.yml`, `code.yml`, `review.yml` |
 | Dispatch secret (org Actions secret name) | `FULLSEND_DISPATCH_TOKEN` |
 | Default base branch if unspecified | `main` |
@@ -113,7 +113,7 @@ The installer MUST perform these operations in order:
 
 1. **DispatchWorkflow** — Dispatch `repo-maintenance.yml` on the `.fullsend` config repo’s default branch via `workflow_dispatch`. No inputs are required; the workflow reads `config.yaml` from the checkout.
 2. **AwaitWorkflowRun** — Poll `ListWorkflowRuns` for a run created after the dispatch time. Wait until the run reaches `completed` status (up to 3 minutes). If the run cannot be found or times out, warn and continue (non-fatal).
-3. **ReportReconciliationPRs** — For each enabled target repository, list open pull requests and report any with the title `Connect to fullsend agent pipeline`. For each disabled target repository, report any with the title `Disconnect from fullsend agent pipeline`.
+3. **ReportReconciliationPRs** — For each enabled target repository, list open pull requests and report any with the title `chore: connect to fullsend agent pipeline`. For each disabled target repository, report any with the title `chore: disconnect from fullsend agent pipeline`.
 
 The `repo-maintenance.yml` workflow (deployed as scaffold content by the `WorkflowsLayer`) performs the actual enrollment:
 
@@ -151,7 +151,7 @@ The workflow uses a GitHub App token (generated via `actions/create-github-app-t
 1. Reads enabled repos from `config.yaml` using `yq`
 2. For each repo, checks if the shim already exists on the default branch
 3. If an enrollment PR already exists, updates the shim content on the branch
-4. Otherwise, creates a branch from the default branch tip, writes the shim, and opens a PR titled `Connect to fullsend agent pipeline`
+4. Otherwise, creates a branch from the default branch tip, writes the shim, and opens a PR titled `chore: connect to fullsend agent pipeline`
 5. Closes any stale unenrollment PR (`fullsend/offboard` branch) for the repo
 
 **Unenrollment (disabled repos):**
@@ -159,7 +159,7 @@ The workflow uses a GitHub App token (generated via `actions/create-github-app-t
 2. For each repo, checks if the shim exists on the default branch
 3. If no shim exists, skips (already clean)
 4. If a removal PR already exists, skips
-5. Otherwise, fetches the shim's blob SHA, creates a branch from the default branch tip, deletes the shim via the GitHub Contents API (requires SHA), and opens a PR titled `Disconnect from fullsend agent pipeline`
+5. Otherwise, fetches the shim's blob SHA, creates a branch from the default branch tip, deletes the shim via the GitHub Contents API (requires SHA), and opens a PR titled `chore: disconnect from fullsend agent pipeline`
 6. Closes any stale enrollment PR (`fullsend/onboard` branch) for the repo
 
 Repo names are validated against `^[a-zA-Z0-9._-]+$` to prevent path injection in API calls.
