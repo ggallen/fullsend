@@ -131,8 +131,6 @@ def suppress_go_test(output: str) -> str | None:
 
     ok_matches = _GO_TEST_OK_RE.findall(output)
     if not ok_matches:
-        if not output.strip():
-            return "tests: passed"
         return None
 
     total_time = sum(float(t) for t in ok_matches)
@@ -150,25 +148,30 @@ def suppress_pytest(output: str) -> str | None:
         duration = match.group(2)
         return f"tests: {passed} passed ({duration}s)"
 
-    if not output.strip():
-        return "tests: passed"
     return None
+
+
+_NPM_FAIL_RE = re.compile(r"\d+\s+failing\b", re.IGNORECASE)
 
 
 def suppress_npm_test(output: str) -> str | None:
     lower = output.lower()
-    if "fail" in lower or "error" in lower:
+    if _NPM_FAIL_RE.search(lower) or "fail" in lower:
         return None
     if "passing" in lower or "tests passed" in lower:
         return "tests: passed"
     return None
 
 
+_MAKE_TEST_OK_RE = re.compile(r"\bok\b", re.IGNORECASE)
+_MAKE_TEST_PASS_RE = re.compile(r"\bpass(?:ed)?\b", re.IGNORECASE)
+
+
 def suppress_make_test(output: str) -> str | None:
     lower = output.lower()
     if "fail" in lower or "error" in lower:
         return None
-    if "ok" in lower or "pass" in lower:
+    if _MAKE_TEST_OK_RE.search(lower) or _MAKE_TEST_PASS_RE.search(lower):
         return "tests: passed"
     return None
 

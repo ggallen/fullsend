@@ -169,10 +169,9 @@ class TestGoTest:
         out = run_hook(make_input("go test ./...", output))
         assert out is None  # FAIL line → passthrough
 
-    def test_empty_output(self):
+    def test_empty_output_passthrough(self):
         out = run_hook(make_input("go test ./...", ""))
-        assert out is not None
-        assert "passed" in out["tool_result"]
+        assert out is None  # empty output → passthrough (runner may have crashed)
 
 
 # --- pytest ---
@@ -197,6 +196,10 @@ class TestPytest:
         out = run_hook(make_input("pytest", output))
         assert out is None  # failure → passthrough
 
+    def test_empty_output_passthrough(self):
+        out = run_hook(make_input("pytest tests/", ""))
+        assert out is None  # empty output → passthrough (runner may have crashed)
+
 
 # --- npm test ---
 
@@ -210,6 +213,12 @@ class TestNpmTest:
     def test_failure(self):
         out = run_hook(make_input("npm test", "  1 failing\n  Error: expected 1 to equal 2\n"))
         assert out is None
+
+    def test_error_in_test_name_still_passes(self):
+        output = "  should render error-boundary component\n  42 passing (3s)\n"
+        out = run_hook(make_input("npm test", output))
+        assert out is not None
+        assert "passed" in out["tool_result"]
 
 
 # --- make test ---
@@ -226,6 +235,16 @@ class TestMakeTest:
         output = "go test ./...\nFAIL error in tests\n"
         out = run_hook(make_input("make test", output))
         assert out is None
+
+    def test_ok_word_boundary(self):
+        output = "checking token validation\nlookup table ready\n"
+        out = run_hook(make_input("make test", output))
+        assert out is None  # "token"/"lookup" contain "ok" but are not the word "ok"
+
+    def test_pass_word_boundary(self):
+        output = "bypass check completed\npassword hashing verified\n"
+        out = run_hook(make_input("make test", output))
+        assert out is None  # "bypass"/"password" contain "pass" but are not the word "pass"
 
 
 # --- go vet / go build ---
