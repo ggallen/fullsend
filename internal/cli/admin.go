@@ -348,6 +348,11 @@ func runDryRun(ctx context.Context, client forge.Client, printer *ui.Printer, or
 	repoNames := repoNameList(allRepos)
 	hasPrivate := hasPrivateRepos(allRepos)
 
+	// Validate that every --repo value matches a discovered repo.
+	if err := validateEnabledRepos(enabledRepos, repoNames); err != nil {
+		return err
+	}
+
 	// Build config with empty agents for analysis.
 	cfg := config.NewOrgConfig(repoNames, enabledRepos, roles, nil, inferenceProviderName)
 
@@ -419,6 +424,31 @@ func runAppSetup(ctx context.Context, client forge.Client, printer *ui.Printer, 
 	return creds, nil
 }
 
+// validateEnabledRepos checks that every --repo value exists in the
+// discovered (eligible) repo list. Repos filtered out by ListOrgRepos
+// (forks, archived) will not appear in discoveredNames, so this catches
+// the case where a user targets a fork or archived repo.
+func validateEnabledRepos(enabledRepos, discoveredNames []string) error {
+	if len(enabledRepos) == 0 {
+		return nil
+	}
+	discovered := make(map[string]bool, len(discoveredNames))
+	for _, name := range discoveredNames {
+		discovered[name] = true
+	}
+	var missing []string
+	for _, name := range enabledRepos {
+		if !discovered[name] {
+			missing = append(missing, name)
+		}
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("repos not found in %s: %s — they may be forks, archived, or misspelled",
+			"the discovered repo list", strings.Join(missing, ", "))
+	}
+	return nil
+}
+
 // runInstall performs the full installation.
 func runInstall(ctx context.Context, client forge.Client, printer *ui.Printer, org string, enabledRepos, roles []string, agentCreds []layers.AgentCredentials, inferenceProvider inference.Provider, inferenceProviderName string, vendorBinary bool) error {
 	printer.Header("Discovering repositories")
@@ -433,6 +463,11 @@ func runInstall(ctx context.Context, client forge.Client, printer *ui.Printer, o
 
 	printer.StepDone(fmt.Sprintf("Found %d repositories", len(allRepos)))
 	printer.Blank()
+
+	// Validate that every --repo value matches a discovered repo.
+	if err := validateEnabledRepos(enabledRepos, repoNames); err != nil {
+		return err
+	}
 
 	// Collect IDs for repos that will be enrolled.
 	enrolledRepoIDs := collectEnrolledRepoIDs(allRepos, enabledRepos)

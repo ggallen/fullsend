@@ -105,6 +105,50 @@ func TestValidateOrgName_Invalid(t *testing.T) {
 	}
 }
 
+func TestValidateEnabledRepos_AllValid(t *testing.T) {
+	err := validateEnabledRepos(
+		[]string{"web-app", "api-server"},
+		[]string{"web-app", "api-server", "docs"},
+	)
+	assert.NoError(t, err)
+}
+
+func TestValidateEnabledRepos_NoRepoFlag(t *testing.T) {
+	err := validateEnabledRepos(nil, []string{"web-app", "docs"})
+	assert.NoError(t, err)
+}
+
+func TestValidateEnabledRepos_MissingOne(t *testing.T) {
+	err := validateEnabledRepos(
+		[]string{"integration-service"},
+		[]string{"web-app", "docs"},
+	)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "integration-service")
+	assert.Contains(t, err.Error(), "forks, archived, or misspelled")
+}
+
+func TestValidateEnabledRepos_MultipleMissing(t *testing.T) {
+	err := validateEnabledRepos(
+		[]string{"web-app", "fork-repo", "archived-repo"},
+		[]string{"web-app", "docs"},
+	)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "fork-repo")
+	assert.Contains(t, err.Error(), "archived-repo")
+	// web-app is valid, should not appear in the error.
+	assert.NotContains(t, err.Error(), "web-app")
+}
+
+func TestValidateEnabledRepos_EmptyDiscovered(t *testing.T) {
+	err := validateEnabledRepos(
+		[]string{"some-repo"},
+		[]string{},
+	)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "some-repo")
+}
+
 func TestResolveToken_EnvVar(t *testing.T) {
 	t.Setenv("GH_TOKEN", "test-token-123")
 	t.Setenv("GITHUB_TOKEN", "")
