@@ -621,10 +621,14 @@ func runAnalyze(ctx context.Context, client forge.Client, printer *ui.Printer, o
 		return fmt.Errorf("getting authenticated user: %w", err)
 	}
 
-	// Detect inference provider from existing config.
+	// Detect inference provider and auth mode from existing config.
 	var inferenceProvider inference.Provider
 	if providerName := loadExistingInferenceProvider(ctx, client, org); providerName != "" {
-		inferenceProvider = vertex.NewAnalyzeOnly()
+		mode := vertex.AuthModeSAKey
+		if wifExists, _ := client.RepoSecretExists(ctx, org, forge.ConfigRepoName, vertex.SecretWIFProvider); wifExists {
+			mode = vertex.AuthModeWIF
+		}
+		inferenceProvider = vertex.NewAnalyzeOnly(mode)
 	}
 
 	stack := buildLayerStack(org, client, cfg, printer, user, hasPrivate, nil, agentCreds, nil, inferenceProvider, false, nil, nil)

@@ -640,6 +640,11 @@ func bootstrapEnv(sshConfigPath, sandboxName, repoDir string, h *harness.Harness
 			}
 			return fmt.Errorf("host_files: src %q expanded to empty string", hf.Src)
 		}
+		if hf.Optional {
+			if _, err := os.Stat(hostPath); err != nil {
+				continue
+			}
+		}
 
 		if hf.Expand {
 			// Read file, expand ${VAR} in content, write expanded version.

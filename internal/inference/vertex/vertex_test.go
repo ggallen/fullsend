@@ -198,14 +198,26 @@ func TestProvision_NilGCPClient_Mode3_OK(t *testing.T) {
 }
 
 func TestProvision_AnalyzeOnly(t *testing.T) {
-	p := NewAnalyzeOnly()
+	t.Run("sa_key mode", func(t *testing.T) {
+		p := NewAnalyzeOnly(AuthModeSAKey)
+		assert.Equal(t, "vertex", p.Name())
+		assert.Equal(t, []string{SecretCredentials, SecretProjectID}, p.SecretNames())
 
-	assert.Equal(t, "vertex", p.Name())
-	assert.Equal(t, []string{SecretCredentials, SecretProjectID}, p.SecretNames())
+		_, err := p.Provision(context.Background())
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "project ID is required")
+	})
 
-	_, err := p.Provision(context.Background())
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "project ID is required")
+	t.Run("wif mode", func(t *testing.T) {
+		p := NewAnalyzeOnly(AuthModeWIF)
+		assert.Equal(t, "vertex", p.Name())
+		assert.Equal(t, []string{SecretWIFProvider, SecretWIFServiceAccount, SecretProjectID}, p.SecretNames())
+	})
+
+	t.Run("empty defaults to sa_key", func(t *testing.T) {
+		p := NewAnalyzeOnly("")
+		assert.Equal(t, []string{SecretCredentials, SecretProjectID}, p.SecretNames())
+	})
 }
 
 func TestProvision_WIF(t *testing.T) {

@@ -86,8 +86,11 @@ func New(cfg Config, gcpAPI GCPClient) *Provider {
 
 // NewAnalyzeOnly creates a Provider that only supports SecretNames() and Name().
 // Calling Provision() on this provider returns an error.
-func NewAnalyzeOnly() *Provider {
-	return &Provider{}
+func NewAnalyzeOnly(mode AuthMode) *Provider {
+	if mode == "" {
+		mode = AuthModeSAKey
+	}
+	return &Provider{cfg: Config{Mode: mode}}
 }
 
 // Name returns "vertex".
