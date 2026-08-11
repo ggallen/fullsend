@@ -7,12 +7,12 @@ import (
 
 // Options configures the poller.
 type Options struct {
-	BotUserID        int
-	GitLabURL        string
-	PipelineRef      string        // git ref for API-triggered pipelines (required; resolved at CLI wiring time)
-	PollJobURL       string        // back-link to the poller CI job (optional; from CI_JOB_URL)
-	DispatchSecret   string        // HMAC shared secret for signing dispatch variables (optional; from FULLSEND_DISPATCH_SECRET)
-	FullPollInterval time.Duration // interval between full polls; 0 uses defaultFullPollInterval (15m)
+	BotUserID      int
+	GitLabURL      string
+	PipelineRef    string // git ref for API-triggered pipelines (required; resolved at CLI wiring time)
+	PollJobURL     string // back-link to the poller CI job (optional; from CI_JOB_URL)
+	DispatchSecret string // HMAC shared secret for signing dispatch variables (optional; from FULLSEND_DISPATCH_SECRET)
+	Mode           string // "slash" or "events"; empty defaults to "events" (full discovery)
 }
 
 // RoutableEvent is an intermediate representation of a detected change,

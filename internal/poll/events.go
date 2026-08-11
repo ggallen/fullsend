@@ -70,6 +70,11 @@ func (p *Poller) discoverAllEvents(ctx context.Context, owner, repo string, sinc
 			if note.CreatedAt.Before(since) {
 				continue
 			}
+			// In events mode, skip /fs-* slash commands — those are
+			// handled by the dedicated slash poll schedule.
+			if p.opts.Mode == "events" && strings.HasPrefix(strings.TrimSpace(note.Body), "/fs-") {
+				continue
+			}
 			events = append(events, RoutableEvent{
 				Type:            "issue_note",
 				IID:             issue.IID,
@@ -124,6 +129,11 @@ func (p *Poller) discoverAllEvents(ctx context.Context, owner, repo string, sinc
 		}
 		for _, note := range notes {
 			if note.CreatedAt.Before(since) {
+				continue
+			}
+			// In events mode, skip /fs-* slash commands — those are
+			// handled by the dedicated slash poll schedule.
+			if p.opts.Mode == "events" && strings.HasPrefix(strings.TrimSpace(note.Body), "/fs-") {
 				continue
 			}
 			events = append(events, RoutableEvent{

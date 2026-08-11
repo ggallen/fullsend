@@ -81,7 +81,7 @@ To remove fullsend from a single repository:
 1. Delete `.gitlab/ci/fullsend-*.yml`, `.gitlab-ci.yml` (if fullsend-managed), and `.fullsend/config.yaml`
 2. Delete all CI/CD variables prefixed with `FULLSEND_`
 3. Revoke the `fullsend-bot` project access token (Settings → Access Tokens)
-4. Delete fullsend pipeline schedules
+4. Delete fullsend pipeline schedules (`fullsend slash poll` and `fullsend event poll`)
 5. For WIF-mode repos: delete the bot token Secret Manager secret (named `fullsend-bot-token-<owner>--<repo>`) from the GCP project
 
 If you manage your own self-hosted mint, run `fullsend mint unenroll "$OWNER/$REPO"` instead of GitHub step 3. See the [standalone commands](#standalone-commands) table for details.

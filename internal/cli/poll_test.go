@@ -17,6 +17,7 @@ func clearPollEnv(t *testing.T) {
 	for _, v := range []string{
 		"FULLSEND_FORGE_TOKEN", "CI_PROJECT_PATH",
 		"CI_COMMIT_REF_NAME", "CI_DEFAULT_BRANCH", "CI_JOB_URL",
+		"FULLSEND_POLL_MODE",
 		"JIRA_BASE_URL", "GITHUB_REPOSITORY",
 		"JIRA_TOKEN", "JIRA_USER_EMAIL",
 	} {
@@ -257,6 +258,33 @@ func TestPollCmd_GitLabMissingProject(t *testing.T) {
 	err := cmd.Execute()
 	if err == nil || !strings.Contains(err.Error(), "--project or CI_PROJECT_PATH") {
 		t.Fatalf("expected project-path error, got: %v", err)
+	}
+}
+
+func TestPollCmd_GitLabInvalidMode(t *testing.T) {
+	clearPollEnv(t)
+	t.Setenv("FULLSEND_FORGE_TOKEN", "tok")
+	t.Setenv("CI_PROJECT_PATH", "group/project")
+	t.Setenv("CI_COMMIT_REF_NAME", "main")
+	cmd := newPollCmd()
+	cmd.SetArgs([]string{"--forge", "gitlab", "--project", "group/project", "--mode", "bogus", "--fullsend-dir", t.TempDir()})
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "--mode must be") {
+		t.Fatalf("expected mode validation error, got: %v", err)
+	}
+}
+
+func TestPollCmd_GitLabModeFromEnv(t *testing.T) {
+	clearPollEnv(t)
+	t.Setenv("FULLSEND_FORGE_TOKEN", "tok")
+	t.Setenv("CI_PROJECT_PATH", "group/project")
+	t.Setenv("CI_COMMIT_REF_NAME", "main")
+	t.Setenv("FULLSEND_POLL_MODE", "invalid")
+	cmd := newPollCmd()
+	cmd.SetArgs([]string{"--forge", "gitlab", "--project", "group/project", "--fullsend-dir", t.TempDir()})
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "--mode must be") {
+		t.Fatalf("expected mode validation error from env, got: %v", err)
 	}
 }
 

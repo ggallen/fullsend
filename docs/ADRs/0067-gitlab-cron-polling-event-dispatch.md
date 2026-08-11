@@ -319,7 +319,7 @@ This is an accepted tradeoff — the alternative (sharing a
 processed-note-IDs set or cross-reading watermarks between modes)
 adds state coupling that complicates the independent-schedule design.
 
-> **Update (2026-08, #5959):** The dual-schedule architecture above was replaced
+> **Update (2026-08, #5959):** ~~The dual-schedule architecture above was replaced
 > by a single `*/5 * * * *` schedule with automatic full-poll promotion. The
 > poller now decides at runtime whether to run a fast poll or full poll based on
 > elapsed time since the last full poll (`FULLSEND_LAST_POLL_AT_FULL`). This
@@ -334,7 +334,23 @@ adds state coupling that complicates the independent-schedule design.
 > cron-poller introduction, "Multi-frequency polling" and fast-poll MR note
 > limitation under "Slash command latency", the Free tier 60-minute interval
 > references in "GitLab tier considerations", and the "5 minutes on Premium, 60
-> minutes on Free" latency in "Consequences".
+> minutes on Free" latency in "Consequences".~~ Superseded by #6077 below.
+>
+> **Update (2026-08, #6077):** The single auto-promoting schedule from #5959
+> was reverted to two independent schedules with explicit mode selection. The
+> auto-promote logic coupled slash-command latency to full-poll duration and
+> used a single `resource_group`, causing GitLab to cancel the in-progress
+> poll when the next schedule fired. The new architecture:
+> - **Slash poll:** `*/5 * * * *` with `FULLSEND_POLL_MODE=slash` — processes
+>   only `/fs-*` slash commands, fast and lightweight.
+> - **Event poll:** `2,17,32,47 * * * *` with `FULLSEND_POLL_MODE=events` —
+>   full event discovery (labels, MR merges, non-command notes).
+> - Each schedule uses a per-mode resource group
+>   (`fullsend-poll-slash` / `fullsend-poll-events`) so they never cancel
+>   each other.
+> - The `--mode` CLI flag (also `FULLSEND_POLL_MODE` env var) selects the
+>   mode explicitly; empty defaults to `events`.
+> - The `shouldFullPoll` auto-promote logic and `FullPollInterval` are removed.
 
 ### Event routing
 

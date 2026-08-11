@@ -1,10 +1,10 @@
 ---
-# fullsend-stage: poll
-
 spec:
   inputs:
     schedule_name:
       default: '$CI_PIPELINE_SCHEDULE_DESCRIPTION'
+---
+# fullsend-stage: poll
 
 "$[[ inputs.schedule_name | expand_vars ]]":
   stage: poll
@@ -12,7 +12,7 @@ spec:
     name: ghcr.io/fullsend-ai/fullsend-runner:latest
     entrypoint: [""]
   tags: __RUNNER_TAGS__
-  resource_group: fullsend-poll
+  resource_group: "fullsend-poll-${FULLSEND_POLL_MODE:-events}"
   rules:
     - if: $CI_PIPELINE_SOURCE == "schedule" && $CI_COMMIT_REF_PROTECTED == "true"
   id_tokens:
@@ -66,14 +66,29 @@ spec:
         exit 1
       fi
 
-      # Resource group self-heal — set process_mode to newest_first so stale
-      # locks from cancelled/deleted pipelines are preempted by new jobs.
+      # Validate FULLSEND_POLL_MODE before use in URLs and commands.
+      case "${FULLSEND_POLL_MODE:-events}" in
+        slash|events) ;;
+        *)
+          echo "ERROR: FULLSEND_POLL_MODE must be 'slash' or 'events', got '${FULLSEND_POLL_MODE:-}'"
+          exit 1
+          ;;
+      esac
+
+      # Resource group self-heal — set process_mode so stale locks from
+      # cancelled/deleted pipelines are preempted by new jobs.
+      # slash mode: newest_first (latest command wins)
+      # events mode: oldest_first (complete long-running discovery)
       # Best-effort: failures don't block the job.
+      PROCESS_MODE="newest_first"
+      if [ "${FULLSEND_POLL_MODE:-events}" = "events" ]; then
+        PROCESS_MODE="oldest_first"
+      fi
       curl -sf --retry 2 --retry-delay 1 --retry-all-errors \
-        -X PUT "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/resource_groups/fullsend-poll" \
+        -X PUT "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/resource_groups/fullsend-poll-${FULLSEND_POLL_MODE:-events}" \
         -H "PRIVATE-TOKEN: ${FULLSEND_FORGE_TOKEN}" \
         -H "Content-Type: application/x-www-form-urlencoded" \
-        -d "process_mode=newest_first" > /dev/null 2>&1 || true
+        -d "process_mode=${PROCESS_MODE}" > /dev/null 2>&1 || true
 
       # Run the poller — dispatches pipelines directly via the GitLab API.
       # No child pipeline generation needed: the poller creates standalone
@@ -82,4 +97,5 @@ spec:
         --forge gitlab \
         --project "${CI_PROJECT_PATH}" \
         --gitlab-url "${FULLSEND_GITLAB_URL:-${CI_SERVER_URL}}" \
-        --fullsend-dir .fullsend
+        --fullsend-dir .fullsend \
+        --mode "${FULLSEND_POLL_MODE:-events}"

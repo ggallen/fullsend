@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -251,16 +252,24 @@ func TestSetupGitLabBotToken(t *testing.T) {
 func TestSetupGitLabPipelineSchedules(t *testing.T) {
 	ctx := context.Background()
 
-	t.Run("creates single poll schedule", func(t *testing.T) {
+	t.Run("creates two poll schedules with correct variables", func(t *testing.T) {
 		fake := &forge.FakeClient{}
 		var buf bytes.Buffer
 		printer := ui.New(&buf)
 
 		err := setupGitLabPipelineSchedules(ctx, fake, printer, "group", "project", "main")
 		require.NoError(t, err)
-		require.Len(t, fake.CreatedSchedules, 1)
+		require.Len(t, fake.CreatedSchedules, 2)
+
+		// Slash poll: every 5 minutes.
 		assert.Equal(t, "*/5 * * * *", fake.CreatedSchedules[0].Cron)
-		assert.Equal(t, "fullsend poll", fake.CreatedSchedules[0].Description)
+		assert.Equal(t, "fullsend slash poll", fake.CreatedSchedules[0].Description)
+		assert.Equal(t, map[string]string{"FULLSEND_POLL_MODE": "slash"}, fake.CreatedSchedules[0].Variables)
+
+		// Event poll: offset cron to avoid collision with slash poll.
+		assert.Equal(t, "2,17,32,47 * * * *", fake.CreatedSchedules[1].Cron)
+		assert.Equal(t, "fullsend event poll", fake.CreatedSchedules[1].Description)
+		assert.Equal(t, map[string]string{"FULLSEND_POLL_MODE": "events"}, fake.CreatedSchedules[1].Variables)
 	})
 }
 
@@ -274,7 +283,39 @@ func TestSetupGitLabPipelineSchedules_ScheduleError(t *testing.T) {
 
 	err := setupGitLabPipelineSchedules(ctx, fake, printer, "group", "project", "main")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "creating poll schedule")
+	assert.Contains(t, err.Error(), "creating slash poll schedule")
+}
+
+func TestSetupGitLabPipelineSchedules_EventScheduleError_RollsBackSlash(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("successful rollback", func(t *testing.T) {
+		fake := &forge.FakeClient{
+			CreatePipelineScheduleErrSeq: []error{nil, fmt.Errorf("quota exceeded")},
+		}
+		var buf bytes.Buffer
+		printer := ui.New(&buf)
+
+		err := setupGitLabPipelineSchedules(ctx, fake, printer, "group", "project", "main")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "creating event poll schedule")
+		require.Len(t, fake.CreatedSchedules, 1, "only slash schedule should have been created")
+		assert.Equal(t, []int64{1}, fake.DeletedScheduleIDs, "should roll back the slash schedule")
+	})
+
+	t.Run("rollback delete also fails", func(t *testing.T) {
+		fake := &forge.FakeClient{
+			CreatePipelineScheduleErrSeq: []error{nil, fmt.Errorf("quota exceeded")},
+			Errors:                       map[string]error{"DeletePipelineSchedule": fmt.Errorf("forbidden")},
+		}
+		var buf bytes.Buffer
+		printer := ui.New(&buf)
+
+		err := setupGitLabPipelineSchedules(ctx, fake, printer, "group", "project", "main")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "creating event poll schedule")
+		assert.Contains(t, buf.String(), "Failed to clean up slash poll schedule")
+	})
 }
 
 func TestSetupGitLabPipelineSchedules_ListError(t *testing.T) {
@@ -322,8 +363,8 @@ func TestCleanupGitLabPipelineSchedules(t *testing.T) {
 	fake := &forge.FakeClient{
 		PipelineSchedules: map[string][]forge.PipelineSchedule{
 			"group/project": {
-				{ID: 1, Description: "fullsend fast poll", Active: true},
-				{ID: 2, Description: "fullsend full poll", Active: true},
+				{ID: 1, Description: "fullsend slash poll", Active: true},
+				{ID: 2, Description: "fullsend event poll", Active: true},
 				{ID: 3, Description: "unrelated schedule", Active: true},
 			},
 		},
@@ -412,7 +453,7 @@ func TestSetupGitLabPipelineSchedules_DeletesExisting(t *testing.T) {
 	fake := &forge.FakeClient{
 		PipelineSchedules: map[string][]forge.PipelineSchedule{
 			"group/project": {
-				{ID: 5, Description: "fullsend fast poll", Active: true},
+				{ID: 5, Description: "fullsend slash poll", Active: true},
 				{ID: 6, Description: "unrelated", Active: true},
 			},
 		},
@@ -423,7 +464,7 @@ func TestSetupGitLabPipelineSchedules_DeletesExisting(t *testing.T) {
 	err := setupGitLabPipelineSchedules(ctx, fake, printer, "group", "project", "main")
 	require.NoError(t, err)
 	assert.Equal(t, []int64{5}, fake.DeletedScheduleIDs, "should delete existing fullsend schedule")
-	require.Len(t, fake.CreatedSchedules, 1)
+	require.Len(t, fake.CreatedSchedules, 2)
 }
 
 func TestCleanupGitLabPipelineSchedules_ListError(t *testing.T) {
@@ -445,7 +486,7 @@ func TestCleanupGitLabPipelineSchedules_DeleteError(t *testing.T) {
 	fake := &forge.FakeClient{
 		PipelineSchedules: map[string][]forge.PipelineSchedule{
 			"group/project": {
-				{ID: 1, Description: "fullsend fast poll", Active: true},
+				{ID: 1, Description: "fullsend slash poll", Active: true},
 			},
 		},
 	}
@@ -471,7 +512,8 @@ func TestHealGitLabResourceGroups(t *testing.T) {
 		mux.HandleFunc("/api/v4/projects/mygroup%2Fmyproject/resource_groups", func(w http.ResponseWriter, _ *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode([]map[string]any{
-				{"key": "fullsend-poll", "process_mode": "unordered"},
+				{"key": "fullsend-poll-slash", "process_mode": "unordered"},
+				{"key": "fullsend-poll-events", "process_mode": "unordered"},
 				{"key": "fullsend-triage-mr-1", "process_mode": "newest_first"},
 				{"key": "production", "process_mode": "oldest_first"},
 			})
@@ -504,8 +546,20 @@ func TestHealGitLabResourceGroups(t *testing.T) {
 		healGitLabResourceGroups(ctx, glClient, printer, "mygroup", "myproject")
 
 		// Should toggle only fullsend-prefixed groups, not "production".
-		assert.Len(t, toggleCalls, 4, "expected 2 fullsend groups × 2 toggles each")
-		assert.Contains(t, buf.String(), "Healed 2 resource group(s)")
+		assert.Len(t, toggleCalls, 6, "expected 3 fullsend groups × 2 toggles each")
+		assert.Contains(t, buf.String(), "Healed 3 resource group(s)")
+
+		// Verify mode-aware target: events gets oldest_first, others get newest_first.
+		for _, tc := range toggleCalls {
+			if tc.Mode == "unordered" {
+				continue
+			}
+			if strings.HasSuffix(tc.Key, "poll-events") {
+				assert.Equal(t, "oldest_first", tc.Mode, "events resource group should use oldest_first")
+			} else {
+				assert.Equal(t, "newest_first", tc.Mode, "%s should use newest_first", tc.Key)
+			}
+		}
 	})
 
 	t.Run("handles list error gracefully", func(t *testing.T) {

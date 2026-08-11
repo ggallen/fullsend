@@ -623,6 +623,7 @@ type PipelineSchedule struct {
 	Cron         string
 	CronTimezone string
 	Active       bool
+	Variables    map[string]string // schedule-level pipeline variables
 }
 
 // GitHubExtensions provides GitHub-specific operations that are not

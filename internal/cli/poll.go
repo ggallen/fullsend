@@ -28,6 +28,7 @@ func newPollCmd() *cobra.Command {
 		jiraProject string
 		jqlOverride string
 		targetRepo  string
+		modeFlag    string
 	)
 
 	cmd := &cobra.Command{
@@ -52,6 +53,15 @@ func newPollCmd() *cobra.Command {
 			}
 			if projectPath == "" {
 				return fmt.Errorf("--project or CI_PROJECT_PATH is required")
+			}
+
+			// Resolve poll mode from flag or environment variable.
+			mode := modeFlag
+			if mode == "" {
+				mode = os.Getenv("FULLSEND_POLL_MODE")
+			}
+			if mode != "" && mode != "slash" && mode != "events" {
+				return fmt.Errorf("--mode must be 'slash' or 'events' (got %q)", mode)
 			}
 
 			glClient, err := gitlab.New(forgeToken, gitlab.WithBaseURL(gitlabURL))
@@ -85,6 +95,7 @@ func newPollCmd() *cobra.Command {
 				PipelineRef:    pipelineRef,
 				PollJobURL:     os.Getenv("CI_JOB_URL"),
 				DispatchSecret: os.Getenv("FULLSEND_DISPATCH_SECRET"),
+				Mode:           mode,
 			}
 
 			poller := poll.New(pollClient, router, projectPath, opts)
@@ -103,6 +114,7 @@ func newPollCmd() *cobra.Command {
 	cmd.Flags().StringVar(&jiraProject, "jira-project", "", "Jira project key for JQL scoping")
 	cmd.Flags().StringVar(&jqlOverride, "jql", "", "Custom JQL override")
 	cmd.Flags().StringVar(&targetRepo, "target-repo", "", "GitHub repo slug where agents run (default: $GITHUB_REPOSITORY)")
+	cmd.Flags().StringVar(&modeFlag, "mode", "", "Poll mode: 'slash' (slash commands only) or 'events' (labels, merges, non-slash notes)")
 	cmd.MarkFlagsOneRequired("forge", "input-driver")
 
 	cmd.Hidden = true

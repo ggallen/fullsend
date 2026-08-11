@@ -227,6 +227,11 @@ type FakeClient struct {
 	// for that call.
 	CreateReviewErrSeq []error
 
+	// CreatePipelineScheduleErrSeq is an error queue for CreatePipelineSchedule.
+	// Each call shifts the first element; when empty, falls through to
+	// Errors["CreatePipelineSchedule"]. A nil entry means no error for that call.
+	CreatePipelineScheduleErrSeq []error
+
 	// Pull request head SHA for GetPullRequestHeadSHA.
 	PullRequestHeadSHA string
 
@@ -1955,11 +1960,17 @@ func (f *FakeClient) CreatePipeline(_ context.Context, owner, repo, ref string, 
 	return &p, nil
 }
 
-func (f *FakeClient) CreatePipelineSchedule(_ context.Context, owner, repo, ref, description, cron string, _ map[string]string) (int64, error) {
+func (f *FakeClient) CreatePipelineSchedule(_ context.Context, owner, repo, ref, description, cron string, variables map[string]string) (int64, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
-	if e := f.err("CreatePipelineSchedule"); e != nil {
+	if len(f.CreatePipelineScheduleErrSeq) > 0 {
+		e := f.CreatePipelineScheduleErrSeq[0]
+		f.CreatePipelineScheduleErrSeq = f.CreatePipelineScheduleErrSeq[1:]
+		if e != nil {
+			return 0, e
+		}
+	} else if e := f.err("CreatePipelineSchedule"); e != nil {
 		return 0, e
 	}
 
@@ -1969,6 +1980,7 @@ func (f *FakeClient) CreatePipelineSchedule(_ context.Context, owner, repo, ref,
 		Ref:         ref,
 		Cron:        cron,
 		Active:      true,
+		Variables:   variables,
 	}
 	f.CreatedSchedules = append(f.CreatedSchedules, s)
 	key := owner + "/" + repo

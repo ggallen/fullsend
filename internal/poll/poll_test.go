@@ -67,11 +67,9 @@ func (r *stubRouter) Route(_ *dispatch.NormalizedEvent) ([]string, error) {
 }
 
 func TestRunEmptyPoll(t *testing.T) {
-	now := time.Now()
 	mc := newMockClient()
-	mc.variables["FULLSEND_LAST_POLL_AT_FULL"] = now.Add(-20 * time.Minute).Format(time.RFC3339)
 
-	p := New(mc, nil, "org/project", Options{})
+	p := New(mc, nil, "org/project", Options{Mode: "events"})
 
 	err := p.Run(context.Background())
 	if err != nil {
@@ -88,15 +86,13 @@ func TestRunEmptyPoll(t *testing.T) {
 	}
 }
 
-func TestRunAutoPromoteFastMode(t *testing.T) {
-	// When the full-poll watermark is recent (< 15 min), the poller
-	// should auto-select fast mode (slash commands only).
+func TestRunSlashMode(t *testing.T) {
+	// When mode is "slash", the poller should use the fast watermark.
 	now := time.Now()
 	mc := newMockClient()
-	mc.variables["FULLSEND_LAST_POLL_AT_FULL"] = now.Add(-5 * time.Minute).Format(time.RFC3339)
 	mc.variables["FULLSEND_LAST_POLL_AT_FAST"] = now.Add(-5 * time.Minute).Format(time.RFC3339)
 
-	p := New(mc, nil, "org/project", Options{})
+	p := New(mc, nil, "org/project", Options{Mode: "slash"})
 
 	err := p.Run(context.Background())
 	if err != nil {
@@ -104,18 +100,15 @@ func TestRunAutoPromoteFastMode(t *testing.T) {
 	}
 
 	if _, ok := mc.updatedVars["FULLSEND_LAST_POLL_AT_FAST"]; !ok {
-		t.Error("fast watermark not updated")
+		t.Error("fast watermark not updated in slash mode")
 	}
 }
 
-func TestRunAutoPromoteFullMode(t *testing.T) {
-	// When the full-poll watermark is old (>= 15 min), the poller
-	// should auto-promote to full mode.
-	now := time.Now()
+func TestRunEventsMode(t *testing.T) {
+	// When mode is "events", the poller should use the full watermark.
 	mc := newMockClient()
-	mc.variables["FULLSEND_LAST_POLL_AT_FULL"] = now.Add(-20 * time.Minute).Format(time.RFC3339)
 
-	p := New(mc, nil, "org/project", Options{})
+	p := New(mc, nil, "org/project", Options{Mode: "events"})
 
 	err := p.Run(context.Background())
 	if err != nil {
@@ -123,13 +116,12 @@ func TestRunAutoPromoteFullMode(t *testing.T) {
 	}
 
 	if _, ok := mc.updatedVars["FULLSEND_LAST_POLL_AT_FULL"]; !ok {
-		t.Error("full watermark not updated after auto-promotion")
+		t.Error("full watermark not updated in events mode")
 	}
 }
 
-func TestRunAutoPromoteFirstRun(t *testing.T) {
-	// When no full-poll watermark exists (first run), the poller
-	// should default to full mode.
+func TestRunDefaultModeIsEvents(t *testing.T) {
+	// When mode is empty (default), the poller should behave like events mode.
 	mc := newMockClient()
 
 	p := New(mc, nil, "org/project", Options{})
@@ -140,7 +132,7 @@ func TestRunAutoPromoteFirstRun(t *testing.T) {
 	}
 
 	if _, ok := mc.updatedVars["FULLSEND_LAST_POLL_AT_FULL"]; !ok {
-		t.Error("full watermark not updated on first run")
+		t.Error("full watermark not updated on default mode")
 	}
 }
 
@@ -182,80 +174,6 @@ func TestTrackLabelFailure(t *testing.T) {
 	})
 	if !failed[5]["ready-to-code"] {
 		t.Error("label failure not tracked")
-	}
-}
-
-func TestShouldFullPoll_FirstRun(t *testing.T) {
-	mc := newMockClient()
-	// No FULLSEND_LAST_POLL_AT_FULL variable → first run.
-	p := newTestPoller(mc, Options{})
-	if !p.shouldFullPoll(context.Background()) {
-		t.Error("expected full poll on first run")
-	}
-}
-
-func TestShouldFullPoll_RecentFullPoll(t *testing.T) {
-	mc := newMockClient()
-	mc.variables["FULLSEND_LAST_POLL_AT_FULL"] = time.Now().Add(-5 * time.Minute).Format(time.RFC3339)
-
-	p := newTestPoller(mc, Options{})
-	if p.shouldFullPoll(context.Background()) {
-		t.Error("expected fast poll when full poll was recent")
-	}
-}
-
-func TestShouldFullPoll_StaleFullPoll(t *testing.T) {
-	mc := newMockClient()
-	mc.variables["FULLSEND_LAST_POLL_AT_FULL"] = time.Now().Add(-20 * time.Minute).Format(time.RFC3339)
-
-	p := newTestPoller(mc, Options{})
-	if !p.shouldFullPoll(context.Background()) {
-		t.Error("expected full poll when 20 minutes have elapsed")
-	}
-}
-
-func TestShouldFullPoll_ExactBoundary(t *testing.T) {
-	mc := newMockClient()
-	mc.variables["FULLSEND_LAST_POLL_AT_FULL"] = time.Now().Add(-15 * time.Minute).Format(time.RFC3339)
-
-	p := newTestPoller(mc, Options{})
-	if !p.shouldFullPoll(context.Background()) {
-		t.Error("expected full poll at exactly 15-minute boundary")
-	}
-}
-
-func TestShouldFullPoll_CustomInterval(t *testing.T) {
-	mc := newMockClient()
-	mc.variables["FULLSEND_LAST_POLL_AT_FULL"] = time.Now().Add(-8 * time.Minute).Format(time.RFC3339)
-
-	p := newTestPoller(mc, Options{FullPollInterval: 10 * time.Minute})
-	if p.shouldFullPoll(context.Background()) {
-		t.Error("expected fast poll when only 8 min elapsed with 10 min interval")
-	}
-
-	mc.variables["FULLSEND_LAST_POLL_AT_FULL"] = time.Now().Add(-12 * time.Minute).Format(time.RFC3339)
-	if !p.shouldFullPoll(context.Background()) {
-		t.Error("expected full poll when 12 min elapsed with 10 min interval")
-	}
-}
-
-func TestShouldFullPoll_InvalidTimestamp(t *testing.T) {
-	mc := newMockClient()
-	mc.variables["FULLSEND_LAST_POLL_AT_FULL"] = "not-a-timestamp"
-
-	p := newTestPoller(mc, Options{})
-	if !p.shouldFullPoll(context.Background()) {
-		t.Error("expected full poll when timestamp is unparseable")
-	}
-}
-
-func TestShouldFullPoll_ReadError(t *testing.T) {
-	mc := newMockClient()
-	mc.variableErr["FULLSEND_LAST_POLL_AT_FULL"] = fmt.Errorf("network failure")
-
-	p := newTestPoller(mc, Options{})
-	if !p.shouldFullPoll(context.Background()) {
-		t.Error("expected full poll on transient read error")
 	}
 }
 

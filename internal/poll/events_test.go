@@ -554,6 +554,127 @@ func TestDeduplicate(t *testing.T) {
 	}
 }
 
+func TestDiscoverAllEvents_EventsModeSkipsSlashCommands(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	since := now.Add(-time.Minute)
+	mc := newMockClient()
+	mc.issues = []Issue{
+		{IID: 1, UpdatedAt: now, Labels: []string{"bug"}},
+	}
+	mc.notes[1] = []Note{
+		{ID: 10, Body: "/fs-triage handle this", Author: UserRef{ID: 42, Username: "alice"}, CreatedAt: now},
+		{ID: 11, Body: "regular comment", Author: UserRef{ID: 43, Username: "bob"}, CreatedAt: now},
+	}
+	mc.mrs = []MergeRequest{
+		{IID: 5, SourceProjectID: 1, TargetProjectID: 1, UpdatedAt: now},
+	}
+	mc.mrNotes[5] = []Note{
+		{ID: 20, Body: "/fs-review", Author: UserRef{ID: 44, Username: "charlie"}, CreatedAt: now},
+		{ID: 21, Body: "MR feedback", Author: UserRef{ID: 45, Username: "dave"}, CreatedAt: now},
+	}
+
+	// Use events mode — slash commands should be skipped.
+	p := New(mc, nil, "group/project", Options{
+		BotUserID: 100,
+		GitLabURL: "https://gitlab.com",
+		Mode:      "events",
+	})
+	events, _, _, err := p.discoverAllEvents(context.Background(), "group", "project", since)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Only non-slash notes should be discovered.
+	var issueNotes, mrNotes []RoutableEvent
+	for _, e := range events {
+		if e.Type == "issue_note" {
+			issueNotes = append(issueNotes, e)
+		}
+		if e.Type == "mr_note" {
+			mrNotes = append(mrNotes, e)
+		}
+	}
+	if len(issueNotes) != 1 {
+		t.Fatalf("expected 1 issue_note (non-slash only), got %d", len(issueNotes))
+	}
+	if issueNotes[0].NoteBody != "regular comment" {
+		t.Errorf("expected non-slash note, got %q", issueNotes[0].NoteBody)
+	}
+	if len(mrNotes) != 1 {
+		t.Fatalf("expected 1 mr_note (non-slash only), got %d", len(mrNotes))
+	}
+	if mrNotes[0].NoteBody != "MR feedback" {
+		t.Errorf("expected non-slash MR note, got %q", mrNotes[0].NoteBody)
+	}
+}
+
+func TestDiscoverAllEvents_EventsModeSkipsWhitespacePrefixedSlash(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	since := now.Add(-time.Minute)
+	mc := newMockClient()
+	mc.issues = []Issue{
+		{IID: 1, UpdatedAt: now, Labels: []string{"bug"}},
+	}
+	mc.notes[1] = []Note{
+		{ID: 10, Body: "  /fs-triage handle this", Author: UserRef{ID: 42, Username: "alice"}, CreatedAt: now},
+		{ID: 11, Body: "\n/fs-code", Author: UserRef{ID: 43, Username: "bob"}, CreatedAt: now},
+		{ID: 12, Body: "regular comment", Author: UserRef{ID: 44, Username: "carol"}, CreatedAt: now},
+	}
+
+	p := New(mc, nil, "group/project", Options{
+		BotUserID: 100,
+		GitLabURL: "https://gitlab.com",
+		Mode:      "events",
+	})
+	events, _, _, err := p.discoverAllEvents(context.Background(), "group", "project", since)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var issueNotes []RoutableEvent
+	for _, e := range events {
+		if e.Type == "issue_note" {
+			issueNotes = append(issueNotes, e)
+		}
+	}
+	if len(issueNotes) != 1 {
+		t.Fatalf("expected 1 issue_note (whitespace-prefixed /fs- filtered), got %d", len(issueNotes))
+	}
+	if issueNotes[0].NoteBody != "regular comment" {
+		t.Errorf("expected non-slash note, got %q", issueNotes[0].NoteBody)
+	}
+}
+
+func TestDiscoverAllEvents_DefaultModeKeepsSlashCommands(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	since := now.Add(-time.Minute)
+	mc := newMockClient()
+	mc.issues = []Issue{
+		{IID: 1, UpdatedAt: now, Labels: []string{"bug"}},
+	}
+	mc.notes[1] = []Note{
+		{ID: 10, Body: "/fs-triage handle this", Author: UserRef{ID: 42, Username: "alice"}, CreatedAt: now},
+		{ID: 11, Body: "regular comment", Author: UserRef{ID: 43, Username: "bob"}, CreatedAt: now},
+	}
+
+	// Default mode (empty) — slash commands should NOT be filtered.
+	p := newEventsPoller(mc)
+	events, _, _, err := p.discoverAllEvents(context.Background(), "group", "project", since)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var noteEvents []RoutableEvent
+	for _, e := range events {
+		if e.Type == "issue_note" {
+			noteEvents = append(noteEvents, e)
+		}
+	}
+	if len(noteEvents) != 2 {
+		t.Fatalf("expected 2 issue_note events (no filtering in default mode), got %d", len(noteEvents))
+	}
+}
+
 func TestFilterRoutableLabels(t *testing.T) {
 	tests := []struct {
 		name   string

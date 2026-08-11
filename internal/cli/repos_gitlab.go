@@ -217,9 +217,10 @@ func storeSecretManagerToken(ctx context.Context, gcpClient gcf.GCFClient, print
 	return nil
 }
 
-// setupGitLabPipelineSchedules creates a single pipeline schedule for
-// polling. The schedule runs every 5 minutes; the poller auto-promotes
-// to a full poll when 15+ minutes have elapsed since the last full poll.
+// setupGitLabPipelineSchedules creates two independent pipeline schedules
+// for polling: a fast slash-command poll (every 5 min) and an offset
+// event-discovery poll (at minutes 2,17,32,47). Each schedule has its own
+// resource group so they never cancel each other.
 func setupGitLabPipelineSchedules(ctx context.Context, client forge.Client, printer *ui.Printer, owner, repo, defaultBranch string) error {
 	// Delete existing fullsend schedules to avoid duplicates on re-install.
 	existing, listErr := client.ListPipelineSchedules(ctx, owner, repo)
@@ -237,14 +238,25 @@ func setupGitLabPipelineSchedules(ctx context.Context, client forge.Client, prin
 		}
 	}
 
-	printer.StepStart("Creating pipeline schedule")
-	scheduleID, err := client.CreatePipelineSchedule(ctx, owner, repo, defaultBranch,
-		"fullsend poll", "*/5 * * * *", nil)
+	printer.StepStart("Creating pipeline schedules")
+	slashID, err := client.CreatePipelineSchedule(ctx, owner, repo, defaultBranch,
+		"fullsend slash poll", "*/5 * * * *", map[string]string{"FULLSEND_POLL_MODE": "slash"})
 	if err != nil {
-		printer.StepFail("Failed to create poll schedule")
-		return fmt.Errorf("creating poll schedule: %w", err)
+		printer.StepFail("Failed to create slash poll schedule")
+		return fmt.Errorf("creating slash poll schedule: %w", err)
 	}
-	printer.StepDone(fmt.Sprintf("Created poll schedule (ID %d)", scheduleID))
+	printer.StepDone(fmt.Sprintf("Created slash poll schedule (ID %d)", slashID))
+
+	eventID, err := client.CreatePipelineSchedule(ctx, owner, repo, defaultBranch,
+		"fullsend event poll", "2,17,32,47 * * * *", map[string]string{"FULLSEND_POLL_MODE": "events"})
+	if err != nil {
+		if delErr := client.DeletePipelineSchedule(ctx, owner, repo, slashID); delErr != nil {
+			printer.StepWarn(fmt.Sprintf("Failed to clean up slash poll schedule (ID %d): %v", slashID, delErr))
+		}
+		printer.StepFail("Failed to create event poll schedule")
+		return fmt.Errorf("creating event poll schedule: %w", err)
+	}
+	printer.StepDone(fmt.Sprintf("Created event poll schedule (ID %d)", eventID))
 	return nil
 }
 
@@ -296,14 +308,18 @@ func healGitLabResourceGroups(ctx context.Context, glClient *gitlab.LiveClient, 
 		if !strings.HasPrefix(g.Key, "fullsend-") {
 			continue
 		}
-		// Toggle to unordered first to break any stale lock, then set to
-		// newest_first which is the desired production mode.
+		// Toggle to unordered first to break any stale lock, then set
+		// the desired production mode per resource group type.
+		targetMode := "newest_first"
+		if g.Key == "fullsend-poll-events" {
+			targetMode = "oldest_first"
+		}
 		if err := glClient.UpdateResourceGroupProcessMode(ctx, owner, repo, g.Key, "unordered"); err != nil {
 			printer.StepWarn(fmt.Sprintf("Failed to toggle resource group %q to unordered: %v", g.Key, err))
 			continue
 		}
-		if err := glClient.UpdateResourceGroupProcessMode(ctx, owner, repo, g.Key, "newest_first"); err != nil {
-			printer.StepWarn(fmt.Sprintf("Failed to set resource group %q to newest_first: %v", g.Key, err))
+		if err := glClient.UpdateResourceGroupProcessMode(ctx, owner, repo, g.Key, targetMode); err != nil {
+			printer.StepWarn(fmt.Sprintf("Failed to set resource group %q to %s: %v", g.Key, targetMode, err))
 			continue
 		}
 		healed++
