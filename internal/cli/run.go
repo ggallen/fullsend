@@ -656,7 +656,7 @@ func runAgent(ctx context.Context, agentName, fullsendDir, outputBase, targetRep
 		printer.KeyValue("Providers", strings.Join(h.Providers, ", "))
 	}
 	if len(h.Skills) > 0 {
-		printer.KeyValue("Skills", strings.Join(h.Skills, ", "))
+		printer.KeyValue("Skills", strings.Join(harness.SkillSources(h.Skills), ", "))
 	}
 	if len(h.Plugins) > 0 {
 		printer.KeyValue("Plugins", strings.Join(h.Plugins, ", "))

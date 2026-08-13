@@ -32,7 +32,7 @@ and update the others as needed.
 | `mergeBaseIntoChild` | `internal/harness/compose.go` | Merges base harness fields into child during `base:` composition |
 | `mergeForgeConfig` | `internal/harness/forge.go` | Applies `forge.<platform>` overrides onto top-level harness fields |
 | `mergeForgeConfigInto` | `internal/harness/compose.go` | Merges base `ForgeConfig` fields into child `ForgeConfig` during `base:` composition |
-| `mergeSkills` | `internal/harness/compose.go` | Deduplicates skills by basename (base + child) |
+| `mergeSkills` | `internal/harness/compose.go` | Deduplicates skills by basename (base + child); merges file-level override maps when both define the same basename (child keys win) |
 | `mergeHostFiles` | `internal/harness/compose.go` | Deduplicates host files by dest path (base + child) |
 | `mergeForgeBlocks` | `internal/harness/compose.go` | Merges `forge:` maps key-by-key across base and child |
 

@@ -34,7 +34,7 @@ func newHarnessBootstrap(h *harness.Harness, sandboxName, agentName string) runt
 		sandboxName: sandboxName,
 		agentPath:   h.Agent,
 		agentName:   agentName,
-		skillDirs:   h.Skills,
+		skillDirs:   harness.SkillSources(h.Skills),
 		pluginDirs:  h.Plugins,
 	}
 	if !h.SecurityEnabled() {

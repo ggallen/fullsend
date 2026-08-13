@@ -107,7 +107,7 @@ skills:
 	require.NoError(t, err)
 
 	// Skills concatenated: base + child (no name collision)
-	assert.Equal(t, []string{"skill-a", "skill-b", "skill-c"}, h.Skills)
+	assert.Equal(t, []string{"skill-a", "skill-b", "skill-c"}, SkillSources(h.Skills))
 }
 
 // TestLoadWithBase_ChildSkillOverridesBaseByBasename verifies that a child
@@ -136,8 +136,8 @@ skills:
 
 	// Child's code-implementation replaces base's, pr-review stays
 	require.Len(t, h.Skills, 2)
-	assert.Equal(t, "skills/code-implementation", h.Skills[0])
-	assert.Equal(t, "/cache/sha256/def456/pr-review", h.Skills[1])
+	assert.Equal(t, "skills/code-implementation", h.Skills[0].Source)
+	assert.Equal(t, "/cache/sha256/def456/pr-review", h.Skills[1].Source)
 }
 
 // TestLoadWithBase_ChildSkillOverride_PreservesOrder verifies that when a
@@ -172,38 +172,46 @@ skills:
 		"local/skill-b",
 		"/cache/skill-c",
 		"local/skill-d",
-	}, h.Skills)
+	}, SkillSources(h.Skills))
 }
 
 // TestMergeSkills verifies the mergeSkills helper directly.
 func TestMergeSkills(t *testing.T) {
+	se := func(sources ...string) []SkillEntry {
+		entries := make([]SkillEntry, len(sources))
+		for i, s := range sources {
+			entries[i] = SkillEntry{Source: s}
+		}
+		return entries
+	}
+
 	tests := []struct {
 		name  string
-		base  []string
-		child []string
+		base  []SkillEntry
+		child []SkillEntry
 		want  []string
 	}{
 		{
 			name:  "no overlap appends",
-			base:  []string{"/base/skill-a"},
-			child: []string{"/child/skill-b"},
+			base:  se("/base/skill-a"),
+			child: se("/child/skill-b"),
 			want:  []string{"/base/skill-a", "/child/skill-b"},
 		},
 		{
 			name:  "child overrides base by basename",
-			base:  []string{"/base/skill-a", "/base/skill-b"},
-			child: []string{"/child/skill-a"},
+			base:  se("/base/skill-a", "/base/skill-b"),
+			child: se("/child/skill-a"),
 			want:  []string{"/child/skill-a", "/base/skill-b"},
 		},
 		{
 			name:  "nil base",
 			base:  nil,
-			child: []string{"/child/skill-a"},
+			child: se("/child/skill-a"),
 			want:  []string{"/child/skill-a"},
 		},
 		{
 			name:  "nil child",
-			base:  []string{"/base/skill-a"},
+			base:  se("/base/skill-a"),
 			child: nil,
 			want:  []string{"/base/skill-a"},
 		},
@@ -215,21 +223,21 @@ func TestMergeSkills(t *testing.T) {
 		},
 		{
 			name:  "full override",
-			base:  []string{"/cache/sha256/abc/code-implementation"},
-			child: []string{"skills/code-implementation"},
+			base:  se("/cache/sha256/abc/code-implementation"),
+			child: se("skills/code-implementation"),
 			want:  []string{"skills/code-implementation"},
 		},
 		{
 			name:  "duplicate child basename deduplicates",
-			base:  []string{"/base/skill-a"},
-			child: []string{"/child1/skill-b", "/child2/skill-b"},
+			base:  se("/base/skill-a"),
+			child: se("/child1/skill-b", "/child2/skill-b"),
 			want:  []string{"/base/skill-a", "/child2/skill-b"},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := mergeSkills(tt.base, tt.child)
-			assert.Equal(t, tt.want, got)
+			assert.Equal(t, tt.want, SkillSources(got))
 		})
 	}
 }
@@ -450,7 +458,7 @@ skills:
 	// C provides image (inherited through B to A)
 	assert.Equal(t, "c-image", h.Image)
 	// Skills concatenated: c + b + a
-	assert.Equal(t, []string{"skill-c", "skill-b", "skill-a"}, h.Skills)
+	assert.Equal(t, []string{"skill-c", "skill-b", "skill-a"}, SkillSources(h.Skills))
 }
 
 func TestLoadWithBase_CycleDetection(t *testing.T) {
@@ -583,10 +591,10 @@ forge:
 	require.NoError(t, err)
 
 	// GitHub forge merged, then resolved
-	assert.Equal(t, "base-pre.sh", h.PreScript)    // from base forge
-	assert.Equal(t, "child-post.sh", h.PostScript) // from child forge
-	assert.Contains(t, h.Skills, "gh-skill-base")  // base skills
-	assert.Contains(t, h.Skills, "gh-skill-child") // child skills
+	assert.Equal(t, "base-pre.sh", h.PreScript)                  // from base forge
+	assert.Equal(t, "child-post.sh", h.PostScript)               // from child forge
+	assert.Contains(t, SkillSources(h.Skills), "gh-skill-base")  // base skills
+	assert.Contains(t, SkillSources(h.Skills), "gh-skill-child") // child skills
 	assert.Equal(t, "base-value1", h.RunnerEnv["GH_KEY1"])
 	assert.Equal(t, "child-value2", h.RunnerEnv["GH_KEY2"])
 
@@ -1135,7 +1143,7 @@ func TestMergeForgeBlocks(t *testing.T) {
 	base := map[string]*ForgeConfig{
 		"github": {
 			PreScript: "base-pre.sh",
-			Skills:    []string{"base-skill"},
+			Skills:    []SkillEntry{{Source: "base-skill"}},
 			RunnerEnv: map[string]string{"KEY1": "base1"},
 		},
 		"gitlab": {
@@ -1145,7 +1153,7 @@ func TestMergeForgeBlocks(t *testing.T) {
 	child := map[string]*ForgeConfig{
 		"github": {
 			PostScript: "child-post.sh",
-			Skills:     []string{"child-skill"},
+			Skills:     []SkillEntry{{Source: "child-skill"}},
 			RunnerEnv:  map[string]string{"KEY2": "child2"},
 		},
 	}
@@ -1157,7 +1165,7 @@ func TestMergeForgeBlocks(t *testing.T) {
 	require.NotNil(t, gh)
 	assert.Equal(t, "base-pre.sh", gh.PreScript)    // inherited
 	assert.Equal(t, "child-post.sh", gh.PostScript) // from child
-	assert.Equal(t, []string{"base-skill", "child-skill"}, gh.Skills)
+	assert.Equal(t, []string{"base-skill", "child-skill"}, SkillSources(gh.Skills))
 	assert.Equal(t, "base1", gh.RunnerEnv["KEY1"])  // inherited
 	assert.Equal(t, "child2", gh.RunnerEnv["KEY2"]) // from child
 
@@ -3515,10 +3523,10 @@ base: `+baseURL+`
 
 	// Skill resolved from cache
 	require.Len(t, h.Skills, 1)
-	assert.True(t, filepath.IsAbs(h.Skills[0]))
+	assert.True(t, filepath.IsAbs(h.Skills[0].Source))
 
 	// Verify content from cache
-	cachedSkillMD := filepath.Join(h.Skills[0], "SKILL.md")
+	cachedSkillMD := filepath.Join(h.Skills[0].Source, "SKILL.md")
 	content, err := os.ReadFile(cachedSkillMD)
 	require.NoError(t, err)
 	assert.Equal(t, skillContent, content)
@@ -3658,7 +3666,7 @@ func TestResolveBaseResources_SkipsURLFields(t *testing.T) {
 	base := &Harness{
 		Agent:  "https://example.com/agents/remote.md",
 		Policy: "https://example.com/policies/remote.yaml",
-		Skills: []string{"https://example.com/skills/foo"},
+		Skills: []SkillEntry{{Source: "https://example.com/skills/foo"}},
 	}
 	deps, err := resolveBaseResources(context.Background(), base, "https://example.com/harness/triage.yaml#sha256=abc", nil, ComposeOpts{})
 	require.NoError(t, err)
@@ -3667,7 +3675,7 @@ func TestResolveBaseResources_SkipsURLFields(t *testing.T) {
 	assert.Empty(t, deps)
 	assert.Equal(t, "https://example.com/agents/remote.md", base.Agent)
 	assert.Equal(t, "https://example.com/policies/remote.yaml", base.Policy)
-	assert.Equal(t, "https://example.com/skills/foo", base.Skills[0])
+	assert.Equal(t, "https://example.com/skills/foo", base.Skills[0].Source)
 }
 
 func TestResolveBaseResources_RejectsAbsolutePath(t *testing.T) {
@@ -3682,7 +3690,7 @@ func TestResolveBaseResources_RejectsAbsolutePath(t *testing.T) {
 }
 
 func TestResolveBaseResources_RejectsAbsoluteSkillPath(t *testing.T) {
-	base := &Harness{Skills: []string{"/etc/passwd"}}
+	base := &Harness{Skills: []SkillEntry{{Source: "/etc/passwd"}}}
 	_, err := resolveBaseResources(context.Background(), base, "https://example.com/harness/triage.yaml#sha256=abc", nil, ComposeOpts{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "must be a relative path, not an absolute path")
@@ -3720,7 +3728,7 @@ func TestResolveBaseResources_RejectsNullBytesInPolicy(t *testing.T) {
 }
 
 func TestResolveBaseResources_RejectsTraversalInSkill(t *testing.T) {
-	base := &Harness{Skills: []string{"../escape"}}
+	base := &Harness{Skills: []SkillEntry{{Source: "../escape"}}}
 	_, err := resolveBaseResources(context.Background(), base, "https://example.com/harness/triage.yaml#sha256=abc", nil, ComposeOpts{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "must not contain path traversal")
@@ -3821,11 +3829,11 @@ base: `+baseURL+`
 
 	// Forge skill resolved from cache and merged into h.Skills via ResolveForge
 	require.NotEmpty(t, h.Skills)
-	assert.True(t, filepath.IsAbs(h.Skills[len(h.Skills)-1]),
+	assert.True(t, filepath.IsAbs(h.Skills[len(h.Skills)-1].Source),
 		"forge skill should be resolved to absolute cache path")
 
 	// Verify content from cache
-	skillMD := filepath.Join(h.Skills[len(h.Skills)-1], "SKILL.md")
+	skillMD := filepath.Join(h.Skills[len(h.Skills)-1].Source, "SKILL.md")
 	content, err := os.ReadFile(skillMD)
 	require.NoError(t, err)
 	assert.Equal(t, skillContent, content)
@@ -5403,12 +5411,12 @@ skills:
 	// The child's skill should be resolved to a local cache path (not
 	// the relative "skills/pr-review" that would need local resolution).
 	require.Len(t, h.Skills, 1)
-	assert.True(t, filepath.IsAbs(h.Skills[0]),
-		"skill should be resolved to an absolute cache path, got %q", h.Skills[0])
+	assert.True(t, filepath.IsAbs(h.Skills[0].Source),
+		"skill should be resolved to an absolute cache path, got %q", h.Skills[0].Source)
 
 	// The cached skill directory should contain all files, including
 	// subdirectories (the fix for #5305).
-	skillDir := h.Skills[0]
+	skillDir := h.Skills[0].Source
 	assert.FileExists(t, filepath.Join(skillDir, "SKILL.md"))
 	assert.FileExists(t, filepath.Join(skillDir, "meta-prompt.md"))
 	assert.FileExists(t, filepath.Join(skillDir, "sub-agents", "correctness.md"))
@@ -5764,26 +5772,26 @@ skills:
 
 	// Both should be absolute paths.
 	for i, skill := range h.Skills {
-		assert.True(t, filepath.IsAbs(skill),
-			"skills[%d] should be an absolute path, got %q", i, skill)
+		assert.True(t, filepath.IsAbs(skill.Source),
+			"skills[%d] should be an absolute path, got %q", i, skill.Source)
 	}
 
 	// The base skill (index 0) should be the pre-resolved path, untouched.
-	assert.Equal(t, baseSkillDir, h.Skills[0],
+	assert.Equal(t, baseSkillDir, h.Skills[0].Source,
 		"base skill should remain at its pre-resolved absolute path")
-	assert.FileExists(t, filepath.Join(h.Skills[0], "SKILL.md"))
-	baseSkillContent, err := os.ReadFile(filepath.Join(h.Skills[0], "SKILL.md"))
+	assert.FileExists(t, filepath.Join(h.Skills[0].Source, "SKILL.md"))
+	baseSkillContent, err := os.ReadFile(filepath.Join(h.Skills[0].Source, "SKILL.md"))
 	require.NoError(t, err)
 	assert.Equal(t, "# Base Skill", string(baseSkillContent))
 
 	// The child skill (index 1) should be resolved to a cache path.
-	assert.NotEqual(t, "skills/child-skill", h.Skills[1],
+	assert.NotEqual(t, "skills/child-skill", h.Skills[1].Source,
 		"child skill should be resolved, not remain relative")
-	assert.FileExists(t, filepath.Join(h.Skills[1], "SKILL.md"))
-	childSkillContent, err := os.ReadFile(filepath.Join(h.Skills[1], "SKILL.md"))
+	assert.FileExists(t, filepath.Join(h.Skills[1].Source, "SKILL.md"))
+	childSkillContent, err := os.ReadFile(filepath.Join(h.Skills[1].Source, "SKILL.md"))
 	require.NoError(t, err)
 	assert.Equal(t, "# Child Skill", string(childSkillContent))
-	assert.FileExists(t, filepath.Join(h.Skills[1], "meta-prompt.md"))
+	assert.FileExists(t, filepath.Join(h.Skills[1].Source, "meta-prompt.md"))
 
 	// Dependencies should include the child skill fetch (but not the
 	// base skill, which was already an absolute path).
@@ -5886,13 +5894,13 @@ skills:
 	require.NoError(t, err)
 
 	require.Len(t, h.Skills, 1, "child's same-basename skill should override the base's, not sit alongside it")
-	assert.True(t, filepath.IsAbs(h.Skills[0]), "overriding skill should be resolved to an absolute path, got %q", h.Skills[0])
-	assert.NotEqual(t, baseSkillDir, h.Skills[0], "should not resolve to the base's skill directory")
+	assert.True(t, filepath.IsAbs(h.Skills[0].Source), "overriding skill should be resolved to an absolute path, got %q", h.Skills[0].Source)
+	assert.NotEqual(t, baseSkillDir, h.Skills[0].Source, "should not resolve to the base's skill directory")
 
-	content, err := os.ReadFile(filepath.Join(h.Skills[0], "SKILL.md"))
+	content, err := os.ReadFile(filepath.Join(h.Skills[0].Source, "SKILL.md"))
 	require.NoError(t, err)
 	assert.Equal(t, "# Child Skill", string(content), "overriding skill should fetch the child's content, not the base's")
-	assert.FileExists(t, filepath.Join(h.Skills[0], "meta-prompt.md"))
+	assert.FileExists(t, filepath.Join(h.Skills[0].Source, "meta-prompt.md"))
 }
 
 func TestLoadWithBase_SourceURL_WithBase_ScriptResolutionError(t *testing.T) {
@@ -6105,16 +6113,16 @@ func TestResolveBaseResources_ForgeSkillSkipsURLAndEmpty(t *testing.T) {
 	base := &Harness{
 		Forge: map[string]*ForgeConfig{
 			"gitlab": {
-				Skills: []string{"", "https://example.com/skills/remote", cachePath},
+				Skills: []SkillEntry{{Source: ""}, {Source: "https://example.com/skills/remote"}, {Source: cachePath}},
 			},
 		},
 	}
 	deps, err := resolveBaseResources(context.Background(), base, "https://example.com/harness/triage.yaml#sha256=abc", nil, ComposeOpts{WorkspaceRoot: workspaceRoot})
 	require.NoError(t, err)
 	assert.Empty(t, deps)
-	assert.Equal(t, "", base.Forge["gitlab"].Skills[0])
-	assert.Equal(t, "https://example.com/skills/remote", base.Forge["gitlab"].Skills[1])
-	assert.Equal(t, cachePath, base.Forge["gitlab"].Skills[2])
+	assert.Equal(t, "", base.Forge["gitlab"].Skills[0].Source)
+	assert.Equal(t, "https://example.com/skills/remote", base.Forge["gitlab"].Skills[1].Source)
+	assert.Equal(t, cachePath, base.Forge["gitlab"].Skills[2].Source)
 }
 
 func TestResolveBaseHostFiles_ForgeNilEntry(t *testing.T) {

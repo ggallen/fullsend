@@ -96,7 +96,7 @@ func TestResolveHarness_LocalPassThrough(t *testing.T) {
 	h := &harness.Harness{
 		Agent:  "/abs/path/agents/test.md",
 		Policy: "/abs/path/policies/readonly.yaml",
-		Skills: []string{"/abs/path/skills/local-skill"},
+		Skills: []harness.SkillEntry{{Source: "/abs/path/skills/local-skill"}},
 	}
 
 	result, err := ResolveHarness(context.Background(), h, ResolveOpts{
@@ -106,7 +106,7 @@ func TestResolveHarness_LocalPassThrough(t *testing.T) {
 	assert.Empty(t, result.Deps)
 	assert.Equal(t, "/abs/path/agents/test.md", h.Agent)
 	assert.Equal(t, "/abs/path/policies/readonly.yaml", h.Policy)
-	assert.Equal(t, "/abs/path/skills/local-skill", h.Skills[0])
+	assert.Equal(t, "/abs/path/skills/local-skill", h.Skills[0].Source)
 }
 
 func TestResolveHarness_URLFetchAndCache(t *testing.T) {
@@ -169,7 +169,7 @@ func TestResolveHarness_DependencyField(t *testing.T) {
 	h := &harness.Harness{
 		Agent:                  fmt.Sprintf("%s/agents/code.md#sha256=%s", srv.URL, agentHash),
 		Policy:                 fmt.Sprintf("%s/policies/ro.yaml#sha256=%s", srv.URL, policyHash),
-		Skills:                 []string{forgeSkillURL("skills/rust", skillHash)},
+		Skills:                 []harness.SkillEntry{{Source: forgeSkillURL("skills/rust", skillHash)}},
 		AllowedRemoteResources: []string{srv.URL + "/", testForgeBase},
 	}
 
@@ -201,7 +201,7 @@ func TestResolveHarness_SkillDirFetchAndCache(t *testing.T) {
 
 	root := t.TempDir()
 	h := &harness.Harness{
-		Skills:                 []string{forgeSkillURL("skills/review", treeHash)},
+		Skills:                 []harness.SkillEntry{{Source: forgeSkillURL("skills/review", treeHash)}},
 		AllowedRemoteResources: []string{testForgeBase},
 	}
 
@@ -217,19 +217,19 @@ func TestResolveHarness_SkillDirFetchAndCache(t *testing.T) {
 
 	// Verify h.Skills[0] is a directory path whose basename is the skill
 	// directory name from the URL ("review"), not the cache-internal "tree".
-	info, err := os.Stat(h.Skills[0])
+	info, err := os.Stat(h.Skills[0].Source)
 	require.NoError(t, err)
 	assert.True(t, info.IsDir())
-	assert.Equal(t, "review", filepath.Base(h.Skills[0]),
+	assert.Equal(t, "review", filepath.Base(h.Skills[0].Source),
 		"skill path basename should be the skill directory name from the URL, not 'tree'")
 
 	// Verify SKILL.md is inside the cached directory.
-	got, err := os.ReadFile(filepath.Join(h.Skills[0], "SKILL.md"))
+	got, err := os.ReadFile(filepath.Join(h.Skills[0].Source, "SKILL.md"))
 	require.NoError(t, err)
 	assert.Equal(t, skillMD, got)
 
 	// Verify companion file is inside the cached directory.
-	got, err = os.ReadFile(filepath.Join(h.Skills[0], "scripts", "helper.sh"))
+	got, err = os.ReadFile(filepath.Join(h.Skills[0].Source, "scripts", "helper.sh"))
 	require.NoError(t, err)
 	assert.Equal(t, helperSh, got)
 }
@@ -247,7 +247,7 @@ func TestResolveHarness_SkillDirCacheHit(t *testing.T) {
 	require.NoError(t, err)
 
 	h := &harness.Harness{
-		Skills:                 []string{forgeSkillURL("skills/cached", treeHash)},
+		Skills:                 []harness.SkillEntry{{Source: forgeSkillURL("skills/cached", treeHash)}},
 		AllowedRemoteResources: []string{testForgeBase},
 	}
 
@@ -258,7 +258,7 @@ func TestResolveHarness_SkillDirCacheHit(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, result.Deps, 1)
 	assert.True(t, result.Deps[0].CacheHit)
-	assert.Equal(t, "cached", filepath.Base(h.Skills[0]),
+	assert.Equal(t, "cached", filepath.Base(h.Skills[0].Source),
 		"cache-hit skill path basename should be the skill directory name from the URL")
 }
 
@@ -271,7 +271,7 @@ func TestResolveHarness_SkillDirDotDotFallsBackToTree(t *testing.T) {
 
 	root := t.TempDir()
 	h := &harness.Harness{
-		Skills:                 []string{forgeSkillURL("skills/..", treeHash)},
+		Skills:                 []harness.SkillEntry{{Source: forgeSkillURL("skills/..", treeHash)}},
 		AllowedRemoteResources: []string{testForgeBase},
 	}
 
@@ -281,7 +281,7 @@ func TestResolveHarness_SkillDirDotDotFallsBackToTree(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Len(t, result.Deps, 1)
-	assert.Equal(t, "tree", filepath.Base(h.Skills[0]),
+	assert.Equal(t, "tree", filepath.Base(h.Skills[0].Source),
 		"skill path with '..' basename should fall back to 'tree' to prevent traversal")
 }
 
@@ -294,7 +294,7 @@ func TestResolveHarness_SkillDirMetadataJsonFallsBackToTree(t *testing.T) {
 
 	root := t.TempDir()
 	h := &harness.Harness{
-		Skills:                 []string{forgeSkillURL("skills/metadata.json", treeHash)},
+		Skills:                 []harness.SkillEntry{{Source: forgeSkillURL("skills/metadata.json", treeHash)}},
 		AllowedRemoteResources: []string{testForgeBase},
 	}
 
@@ -304,7 +304,7 @@ func TestResolveHarness_SkillDirMetadataJsonFallsBackToTree(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Len(t, result.Deps, 1)
-	assert.Equal(t, "tree", filepath.Base(h.Skills[0]),
+	assert.Equal(t, "tree", filepath.Base(h.Skills[0].Source),
 		"skill path with 'metadata.json' basename should fall back to 'tree' to avoid cache file collision")
 }
 
@@ -315,7 +315,7 @@ func TestResolveHarness_SkillDirHashMismatch(t *testing.T) {
 	wrongHash := fetch.ComputeTreeHash(map[string][]byte{"SKILL.md": []byte("expected content")})
 
 	h := &harness.Harness{
-		Skills:                 []string{forgeSkillURL("skills/tampered", wrongHash)},
+		Skills:                 []harness.SkillEntry{{Source: forgeSkillURL("skills/tampered", wrongHash)}},
 		AllowedRemoteResources: []string{testForgeBase},
 	}
 
@@ -334,7 +334,7 @@ func TestResolveHarness_SkillNonForgeURLRejected(t *testing.T) {
 
 	fakeHash := strings.Repeat("a", 64)
 	h := &harness.Harness{
-		Skills:                 []string{fmt.Sprintf("%s/skills/review#sha256=%s", srv.URL, fakeHash)},
+		Skills:                 []harness.SkillEntry{{Source: fmt.Sprintf("%s/skills/review#sha256=%s", srv.URL, fakeHash)}},
 		AllowedRemoteResources: []string{srv.URL + "/"},
 	}
 
@@ -349,7 +349,7 @@ func TestResolveHarness_SkillNonForgeURLRejected(t *testing.T) {
 func TestResolveHarness_GitLabURLRejected(t *testing.T) {
 	fakeHash := strings.Repeat("a", 64)
 	h := &harness.Harness{
-		Skills:                 []string{fmt.Sprintf("https://gitlab.com/org/repo/-/tree/main/skills/review#sha256=%s", fakeHash)},
+		Skills:                 []harness.SkillEntry{{Source: fmt.Sprintf("https://gitlab.com/org/repo/-/tree/main/skills/review#sha256=%s", fakeHash)}},
 		AllowedRemoteResources: []string{"https://gitlab.com/org/repo/"},
 	}
 
@@ -375,9 +375,9 @@ func TestResolveHarness_DiamondDependency(t *testing.T) {
 
 	root := t.TempDir()
 	h := &harness.Harness{
-		Skills: []string{
-			forgeSkillURL("skills/parent", parentHash),
-			forgeSkillURL("skills/shared", sharedHash),
+		Skills: []harness.SkillEntry{
+			{Source: forgeSkillURL("skills/parent", parentHash)},
+			{Source: forgeSkillURL("skills/shared", sharedHash)},
 		},
 		AllowedRemoteResources: []string{testForgeBase},
 	}
@@ -537,7 +537,7 @@ func TestResolveHarness_SkillDirOfflineMiss(t *testing.T) {
 	skillHash := reg.register("skills/offline", map[string][]byte{"SKILL.md": []byte("# Skill")})
 
 	h := &harness.Harness{
-		Skills:                 []string{forgeSkillURL("skills/offline", skillHash)},
+		Skills:                 []harness.SkillEntry{{Source: forgeSkillURL("skills/offline", skillHash)}},
 		AllowedRemoteResources: []string{testForgeBase},
 	}
 
@@ -560,7 +560,7 @@ func TestResolveHarness_SkillDirOfflineHit(t *testing.T) {
 	require.NoError(t, err)
 
 	h := &harness.Harness{
-		Skills:                 []string{forgeSkillURL("skills/offline", skillHash)},
+		Skills:                 []harness.SkillEntry{{Source: forgeSkillURL("skills/offline", skillHash)}},
 		AllowedRemoteResources: []string{testForgeBase},
 	}
 
@@ -587,7 +587,7 @@ func TestResolveHarness_MixedHarness(t *testing.T) {
 	h := &harness.Harness{
 		Agent:                  agentURL,
 		Policy:                 "/local/policies/readonly.yaml",
-		Skills:                 []string{"/local/skills/debug"},
+		Skills:                 []harness.SkillEntry{{Source: "/local/skills/debug"}},
 		AllowedRemoteResources: []string{srv.URL + "/"},
 	}
 
@@ -600,7 +600,7 @@ func TestResolveHarness_MixedHarness(t *testing.T) {
 
 	assert.False(t, harness.IsURL(h.Agent))
 	assert.Equal(t, "/local/policies/readonly.yaml", h.Policy)
-	assert.Equal(t, "/local/skills/debug", h.Skills[0])
+	assert.Equal(t, "/local/skills/debug", h.Skills[0].Source)
 }
 
 func TestResolveHarness_AuditEntries(t *testing.T) {
@@ -655,10 +655,10 @@ func TestResolveHarness_MultipleSkills(t *testing.T) {
 	root := t.TempDir()
 	h := &harness.Harness{
 		Agent: "/local/agents/test.md",
-		Skills: []string{
-			"/local/skills/debug",
-			forgeSkillURL("skills/one", skill1Hash),
-			forgeSkillURL("skills/two", skill2Hash),
+		Skills: []harness.SkillEntry{
+			{Source: "/local/skills/debug"},
+			{Source: forgeSkillURL("skills/one", skill1Hash)},
+			{Source: forgeSkillURL("skills/two", skill2Hash)},
 		},
 		AllowedRemoteResources: []string{testForgeBase},
 	}
@@ -670,20 +670,20 @@ func TestResolveHarness_MultipleSkills(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, result.Deps, 2)
 
-	assert.Equal(t, "/local/skills/debug", h.Skills[0])
-	assert.False(t, harness.IsURL(h.Skills[1]))
-	assert.False(t, harness.IsURL(h.Skills[2]))
+	assert.Equal(t, "/local/skills/debug", h.Skills[0].Source)
+	assert.False(t, harness.IsURL(h.Skills[1].Source))
+	assert.False(t, harness.IsURL(h.Skills[2].Source))
 
 	// Verify skills resolve to directories named after the URL path, not "tree".
-	assert.Equal(t, "one", filepath.Base(h.Skills[1]))
-	assert.Equal(t, "two", filepath.Base(h.Skills[2]))
+	assert.Equal(t, "one", filepath.Base(h.Skills[1].Source))
+	assert.Equal(t, "two", filepath.Base(h.Skills[2].Source))
 
 	// Verify skills resolve to directories with SKILL.md inside.
-	got1, err := os.ReadFile(filepath.Join(h.Skills[1], "SKILL.md"))
+	got1, err := os.ReadFile(filepath.Join(h.Skills[1].Source, "SKILL.md"))
 	require.NoError(t, err)
 	assert.Equal(t, skill1MD, got1)
 
-	got2, err := os.ReadFile(filepath.Join(h.Skills[2], "SKILL.md"))
+	got2, err := os.ReadFile(filepath.Join(h.Skills[2].Source, "SKILL.md"))
 	require.NoError(t, err)
 	assert.Equal(t, skill2MD, got2)
 }
@@ -768,7 +768,7 @@ func TestResolveHarness_TransitiveChain(t *testing.T) {
 	aHash := reg.register("skills/a", map[string][]byte{"SKILL.md": aMD})
 
 	h := &harness.Harness{
-		Skills:                 []string{forgeSkillURL("skills/a", aHash)},
+		Skills:                 []harness.SkillEntry{{Source: forgeSkillURL("skills/a", aHash)}},
 		AllowedRemoteResources: []string{testForgeBase},
 	}
 
@@ -811,9 +811,9 @@ func TestResolveHarness_DiamondDedup(t *testing.T) {
 	bHash := reg.register("skills/b", map[string][]byte{"SKILL.md": bMD})
 
 	h := &harness.Harness{
-		Skills: []string{
-			forgeSkillURL("skills/a", aHash),
-			forgeSkillURL("skills/b", bHash),
+		Skills: []harness.SkillEntry{
+			{Source: forgeSkillURL("skills/a", aHash)},
+			{Source: forgeSkillURL("skills/b", bHash)},
 		},
 		AllowedRemoteResources: []string{testForgeBase},
 	}
@@ -854,7 +854,7 @@ func TestResolveHarness_CycleDetection(t *testing.T) {
 	aHash := reg.register("skills/a", map[string][]byte{"SKILL.md": aMD})
 
 	h := &harness.Harness{
-		Skills:                 []string{forgeSkillURL("skills/a", aHash)},
+		Skills:                 []harness.SkillEntry{{Source: forgeSkillURL("skills/a", aHash)}},
 		AllowedRemoteResources: []string{testForgeBase},
 	}
 
@@ -887,7 +887,7 @@ func TestResolveHarness_MaxDepthExceeded(t *testing.T) {
 	aHash := reg.register("skills/a", map[string][]byte{"SKILL.md": aMD})
 
 	h := &harness.Harness{
-		Skills:                 []string{forgeSkillURL("skills/a", aHash)},
+		Skills:                 []harness.SkillEntry{{Source: forgeSkillURL("skills/a", aHash)}},
 		AllowedRemoteResources: []string{testForgeBase},
 	}
 
@@ -915,7 +915,7 @@ func TestResolveHarness_MaxResourcesExceeded(t *testing.T) {
 	aHash := reg.register("skills/a", map[string][]byte{"SKILL.md": aMD})
 
 	h := &harness.Harness{
-		Skills:                 []string{forgeSkillURL("skills/a", aHash)},
+		Skills:                 []harness.SkillEntry{{Source: forgeSkillURL("skills/a", aHash)}},
 		AllowedRemoteResources: []string{testForgeBase},
 	}
 
@@ -945,7 +945,7 @@ func TestResolveHarness_TransitiveNotInAllowlist(t *testing.T) {
 	aHash := reg.register("skills/a", map[string][]byte{"SKILL.md": aMD})
 
 	h := &harness.Harness{
-		Skills: []string{forgeSkillURL("skills/a", aHash)},
+		Skills: []harness.SkillEntry{{Source: forgeSkillURL("skills/a", aHash)}},
 		// Only skill A's exact path is allowed; skill B (the transitive dep) is not.
 		AllowedRemoteResources: []string{forgeSkillCleanURL("skills/a")},
 	}
@@ -976,7 +976,7 @@ func TestResolveHarness_TransitiveHashMismatch(t *testing.T) {
 	aHash := reg.register("skills/a", map[string][]byte{"SKILL.md": aMD})
 
 	h := &harness.Harness{
-		Skills:                 []string{forgeSkillURL("skills/a", aHash)},
+		Skills:                 []harness.SkillEntry{{Source: forgeSkillURL("skills/a", aHash)}},
 		AllowedRemoteResources: []string{testForgeBase},
 	}
 
@@ -1005,7 +1005,7 @@ func TestResolveHarness_TransitiveRelativeURL(t *testing.T) {
 	aHash := reg.register("skills/a", map[string][]byte{"SKILL.md": aMD})
 
 	h := &harness.Harness{
-		Skills:                 []string{forgeSkillURL("skills/a", aHash)},
+		Skills:                 []harness.SkillEntry{{Source: forgeSkillURL("skills/a", aHash)}},
 		AllowedRemoteResources: []string{testForgeBase},
 	}
 
@@ -1050,9 +1050,9 @@ func TestResolveHarness_ConflictingHashesForSameURL(t *testing.T) {
 	_ = dURL // referenced only to clarify the test setup
 
 	h := &harness.Harness{
-		Skills: []string{
-			forgeSkillURL("skills/a", aHash),
-			forgeSkillURL("skills/b", bHash),
+		Skills: []harness.SkillEntry{
+			{Source: forgeSkillURL("skills/a", aHash)},
+			{Source: forgeSkillURL("skills/b", bHash)},
 		},
 		AllowedRemoteResources: []string{testForgeBase},
 	}
@@ -1089,7 +1089,7 @@ func TestResolveHarness_SkillPolicyLeafNode(t *testing.T) {
 	aHash := reg.register("skills/a", map[string][]byte{"SKILL.md": aMD})
 
 	h := &harness.Harness{
-		Skills:                 []string{forgeSkillURL("skills/a", aHash)},
+		Skills:                 []harness.SkillEntry{{Source: forgeSkillURL("skills/a", aHash)}},
 		AllowedRemoteResources: []string{testForgeBase, srv.URL + "/"},
 	}
 
@@ -1110,7 +1110,7 @@ func TestResolveHarness_SkillPolicyLeafNode(t *testing.T) {
 	assert.True(t, depURLs[srv.URL+"/policies/sandbox.yaml"], "policy should be in deps")
 
 	for _, s := range h.Skills {
-		assert.NotContains(t, s, "sandbox.yaml", "policy path must not appear in h.Skills")
+		assert.NotContains(t, s.Source, "sandbox.yaml", "policy path must not appear in h.Skills")
 	}
 }
 
@@ -1129,7 +1129,7 @@ func TestResolveHarness_ZeroMaxDepthDisablesTransitive(t *testing.T) {
 	aHash := reg.register("skills/a", map[string][]byte{"SKILL.md": aMD})
 
 	h := &harness.Harness{
-		Skills:                 []string{forgeSkillURL("skills/a", aHash)},
+		Skills:                 []harness.SkillEntry{{Source: forgeSkillURL("skills/a", aHash)}},
 		AllowedRemoteResources: []string{testForgeBase},
 	}
 
@@ -1158,7 +1158,7 @@ func TestResolveHarness_MaxDepthDefaultApplied(t *testing.T) {
 	aHash := reg.register("skills/a", map[string][]byte{"SKILL.md": aMD})
 
 	h := &harness.Harness{
-		Skills:                 []string{forgeSkillURL("skills/a", aHash)},
+		Skills:                 []harness.SkillEntry{{Source: forgeSkillURL("skills/a", aHash)}},
 		AllowedRemoteResources: []string{testForgeBase},
 	}
 
@@ -1188,7 +1188,7 @@ func TestResolveHarness_NonHTTPSSchemeRejected(t *testing.T) {
 	aHash := reg.register("skills/a", map[string][]byte{"SKILL.md": aMD})
 
 	h := &harness.Harness{
-		Skills:                 []string{forgeSkillURL("skills/a", aHash)},
+		Skills:                 []harness.SkillEntry{{Source: forgeSkillURL("skills/a", aHash)}},
 		AllowedRemoteResources: []string{testForgeBase, "http://github.com/"},
 	}
 
@@ -1219,9 +1219,9 @@ func TestResolveHarness_DirectAndTransitiveOverlap(t *testing.T) {
 
 	// Both A and B are direct harness skills; A also depends on B transitively.
 	h := &harness.Harness{
-		Skills: []string{
-			forgeSkillURL("skills/a", aHash),
-			bURL,
+		Skills: []harness.SkillEntry{
+			{Source: forgeSkillURL("skills/a", aHash)},
+			{Source: bURL},
 		},
 		AllowedRemoteResources: []string{testForgeBase},
 	}
@@ -1238,8 +1238,8 @@ func TestResolveHarness_DirectAndTransitiveOverlap(t *testing.T) {
 	// B must not appear twice in h.Skills.
 	seen := make(map[string]bool)
 	for _, s := range h.Skills {
-		assert.False(t, seen[s], "h.Skills contains duplicate entry %s", s)
-		seen[s] = true
+		assert.False(t, seen[s.Source], "h.Skills contains duplicate entry %s", s.Source)
+		seen[s.Source] = true
 	}
 }
 
@@ -1248,7 +1248,7 @@ func TestResolveHarness_DirectAndTransitiveOverlap(t *testing.T) {
 func TestResolveHarness_TreeFetcherError(t *testing.T) {
 	fakeHash := strings.Repeat("a", 64)
 	h := &harness.Harness{
-		Skills:                 []string{forgeSkillURL("skills/test", fakeHash)},
+		Skills:                 []harness.SkillEntry{{Source: forgeSkillURL("skills/test", fakeHash)}},
 		AllowedRemoteResources: []string{testForgeBase},
 	}
 
@@ -1266,7 +1266,7 @@ func TestResolveHarness_TreeFetcherError(t *testing.T) {
 func TestResolveHarness_TreeFetcherErrorWithToken(t *testing.T) {
 	fakeHash := strings.Repeat("a", 64)
 	h := &harness.Harness{
-		Skills:                 []string{forgeSkillURL("skills/test", fakeHash)},
+		Skills:                 []harness.SkillEntry{{Source: forgeSkillURL("skills/test", fakeHash)}},
 		AllowedRemoteResources: []string{testForgeBase},
 	}
 
@@ -1849,7 +1849,7 @@ func TestResolveHarness_PluginSharedURLWithSkill(t *testing.T) {
 	sharedURL := forgeSkillURL("resources/shared", treeHash)
 	h := &harness.Harness{
 		Agent:                  "/local/agents/test.md",
-		Skills:                 []string{sharedURL},
+		Skills:                 []harness.SkillEntry{{Source: sharedURL}},
 		Plugins:                []string{sharedURL},
 		AllowedRemoteResources: []string{testForgeBase},
 	}
@@ -1869,7 +1869,7 @@ func TestResolveHarness_PluginSharedURLWithSkill(t *testing.T) {
 	require.Len(t, h.Plugins, 1, "plugin must not be silently dropped when sharing a URL with a skill")
 
 	// Both should point to valid local directories.
-	assert.False(t, harness.IsURL(h.Skills[0]))
+	assert.False(t, harness.IsURL(h.Skills[0].Source))
 	assert.False(t, harness.IsURL(h.Plugins[0]))
 }
 

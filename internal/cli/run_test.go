@@ -3194,7 +3194,7 @@ func TestShouldStartFetchService_AllowRuntimeFetch(t *testing.T) {
 func TestShouldStartFetchService_URLSkills(t *testing.T) {
 	h := &harness.Harness{
 		Agent:  "agents/test.md",
-		Skills: []string{"https://github.com/org/skills/tree/abc/rust#sha256=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"},
+		Skills: []harness.SkillEntry{{Source: "https://github.com/org/skills/tree/abc/rust#sha256=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}},
 	}
 	start, warning := shouldStartFetchService(h)
 	assert.True(t, start)

@@ -71,16 +71,16 @@ func TestResolveForge_PolicyNotOverriddenWhenEmpty(t *testing.T) {
 func TestResolveForge_SkillsConcat(t *testing.T) {
 	h := &Harness{
 		Agent:  "agents/test.md",
-		Skills: []string{"skills/common-a", "skills/common-b"},
+		Skills: []SkillEntry{{Source: "skills/common-a"}, {Source: "skills/common-b"}},
 		Forge: map[string]*ForgeConfig{
 			"github": {
-				Skills: []string{"skills/gh-specific"},
+				Skills: []SkillEntry{{Source: "skills/gh-specific"}},
 			},
 		},
 	}
 
 	require.NoError(t, h.ResolveForge("github"))
-	assert.Equal(t, []string{"skills/common-a", "skills/common-b", "skills/gh-specific"}, h.Skills)
+	assert.Equal(t, []string{"skills/common-a", "skills/common-b", "skills/gh-specific"}, SkillSources(h.Skills))
 }
 
 // TestResolveForge_SkillsOverrideByBasename verifies that a forge skill
@@ -89,44 +89,44 @@ func TestResolveForge_SkillsConcat(t *testing.T) {
 func TestResolveForge_SkillsOverrideByBasename(t *testing.T) {
 	h := &Harness{
 		Agent:  "agents/test.md",
-		Skills: []string{"/cache/code-implementation", "skills/common-b"},
+		Skills: []SkillEntry{{Source: "/cache/code-implementation"}, {Source: "skills/common-b"}},
 		Forge: map[string]*ForgeConfig{
 			"github": {
-				Skills: []string{"skills/code-implementation"},
+				Skills: []SkillEntry{{Source: "skills/code-implementation"}},
 			},
 		},
 	}
 
 	require.NoError(t, h.ResolveForge("github"))
-	assert.Equal(t, []string{"skills/code-implementation", "skills/common-b"}, h.Skills)
+	assert.Equal(t, []string{"skills/code-implementation", "skills/common-b"}, SkillSources(h.Skills))
 }
 
 func TestResolveForge_NilSkillsInherits(t *testing.T) {
 	h := &Harness{
 		Agent:  "agents/test.md",
-		Skills: []string{"skills/common"},
+		Skills: []SkillEntry{{Source: "skills/common"}},
 		Forge: map[string]*ForgeConfig{
 			"github": {},
 		},
 	}
 
 	require.NoError(t, h.ResolveForge("github"))
-	assert.Equal(t, []string{"skills/common"}, h.Skills)
+	assert.Equal(t, []string{"skills/common"}, SkillSources(h.Skills))
 }
 
 func TestResolveForge_EmptySkillsAddsNothing(t *testing.T) {
 	h := &Harness{
 		Agent:  "agents/test.md",
-		Skills: []string{"skills/common"},
+		Skills: []SkillEntry{{Source: "skills/common"}},
 		Forge: map[string]*ForgeConfig{
 			"github": {
-				Skills: []string{},
+				Skills: []SkillEntry{},
 			},
 		},
 	}
 
 	require.NoError(t, h.ResolveForge("github"))
-	assert.Equal(t, []string{"skills/common"}, h.Skills)
+	assert.Equal(t, []string{"skills/common"}, SkillSources(h.Skills))
 }
 
 func TestResolveForge_RunnerEnvMerge(t *testing.T) {
@@ -392,7 +392,7 @@ func TestValidate_ForgeValidConfig(t *testing.T) {
 			"github": {
 				PreScript:  "scripts/pre-gh.sh",
 				PostScript: "scripts/post-gh.sh",
-				Skills:     []string{"skills/gh-issue"},
+				Skills:     []SkillEntry{{Source: "skills/gh-issue"}},
 				RunnerEnv:  map[string]string{"GH_TOKEN": "${GH_TOKEN}"},
 				ValidationLoop: &ValidationLoop{
 					Script:        "scripts/validate-gh.sh",
@@ -401,7 +401,7 @@ func TestValidate_ForgeValidConfig(t *testing.T) {
 			},
 			"gitlab": {
 				PreScript: "scripts/pre-gl.sh",
-				Skills:    []string{"skills/gl-issue"},
+				Skills:    []SkillEntry{{Source: "skills/gl-issue"}},
 				RunnerEnv: map[string]string{"GITLAB_TOKEN": "${GITLAB_TOKEN}"},
 			},
 		},
@@ -468,7 +468,7 @@ func TestValidate_ForgeSkillURLWithoutHash(t *testing.T) {
 		Role:  "test",
 		Forge: map[string]*ForgeConfig{
 			"github": {
-				Skills: []string{"https://example.com/skills/summarize.md"},
+				Skills: []SkillEntry{{Source: "https://example.com/skills/summarize.md"}},
 			},
 		},
 	}
@@ -484,7 +484,7 @@ func TestValidate_ForgeSkillURLWithHash(t *testing.T) {
 		Role:  "test",
 		Forge: map[string]*ForgeConfig{
 			"github": {
-				Skills: []string{"https://example.com/skills/summarize.md#sha256=abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"},
+				Skills: []SkillEntry{{Source: "https://example.com/skills/summarize.md#sha256=abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"}},
 			},
 		},
 	}
@@ -589,7 +589,7 @@ forge:
 	require.Contains(t, h.Forge, "gitlab")
 
 	assert.Equal(t, "scripts/pre-gh.sh", h.Forge["github"].PreScript)
-	assert.Equal(t, []string{"skills/gh-specific"}, h.Forge["github"].Skills)
+	assert.Equal(t, []string{"skills/gh-specific"}, SkillSources(h.Forge["github"].Skills))
 	assert.Equal(t, "${GH_TOKEN}", h.Forge["github"].RunnerEnv["GH_TOKEN"])
 	assert.Equal(t, "scripts/pre-gl.sh", h.Forge["gitlab"].PreScript)
 }

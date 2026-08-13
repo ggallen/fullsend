@@ -32,7 +32,7 @@ timeout_minutes: 5
 
 	assert.Equal(t, "agents/hello-world.md", h.Agent)
 	assert.Equal(t, "registry.example.com/sandbox:v1", h.Image)
-	assert.Equal(t, []string{"skills/hello-world-summary"}, h.Skills)
+	assert.Equal(t, []string{"skills/hello-world-summary"}, SkillSources(h.Skills))
 	require.NotNil(t, h.ValidationLoop)
 	assert.Equal(t, "scripts/validate-output.sh", h.ValidationLoop.Script)
 	assert.Equal(t, 1, h.ValidationLoop.MaxIterations)
@@ -150,7 +150,7 @@ func TestResolveRelativeTo(t *testing.T) {
 	h := &Harness{
 		Agent:      "agents/hello-world.md",
 		Policy:     "policies/readonly.yaml",
-		Skills:     []string{"skills/hello-world-summary"},
+		Skills:     []SkillEntry{{Source: "skills/hello-world-summary"}},
 		PreScript:  "scripts/pre.sh",
 		PostScript: "scripts/post.sh",
 		AgentInput: "agent-input",
@@ -163,7 +163,7 @@ func TestResolveRelativeTo(t *testing.T) {
 
 	assert.Equal(t, "/base/dir/agents/hello-world.md", h.Agent)
 	assert.Equal(t, "/base/dir/policies/readonly.yaml", h.Policy)
-	assert.Equal(t, []string{"/base/dir/skills/hello-world-summary"}, h.Skills)
+	assert.Equal(t, []string{"/base/dir/skills/hello-world-summary"}, SkillSources(h.Skills))
 	assert.Equal(t, "/base/dir/scripts/pre.sh", h.PreScript)
 	assert.Equal(t, "/base/dir/scripts/post.sh", h.PostScript)
 	assert.Equal(t, "/base/dir/agent-input", h.AgentInput)
@@ -749,7 +749,7 @@ func TestValidateFilesExist_MissingSkill(t *testing.T) {
 
 	h := &Harness{
 		Agent:  agentFile,
-		Skills: []string{"/nonexistent/skill"},
+		Skills: []SkillEntry{{Source: "/nonexistent/skill"}},
 	}
 	err := h.ValidateFilesExist()
 	require.Error(t, err)
@@ -854,15 +854,15 @@ func TestResolveRelativeTo_URLsUnchanged(t *testing.T) {
 	h := &Harness{
 		Agent:  agentURL,
 		Policy: "policies/readonly.yaml",
-		Skills: []string{"skills/local-skill", skillURL},
+		Skills: []SkillEntry{{Source: "skills/local-skill"}, {Source: skillURL}},
 	}
 
 	require.NoError(t, h.ResolveRelativeTo("/base/dir"))
 
 	assert.Equal(t, agentURL, h.Agent)
-	assert.Equal(t, skillURL, h.Skills[1])
+	assert.Equal(t, skillURL, h.Skills[1].Source)
 	assert.Equal(t, "/base/dir/policies/readonly.yaml", h.Policy)
-	assert.Equal(t, "/base/dir/skills/local-skill", h.Skills[0])
+	assert.Equal(t, "/base/dir/skills/local-skill", h.Skills[0].Source)
 }
 
 func TestResolveRelativeTo_Profiles(t *testing.T) {
@@ -1223,7 +1223,7 @@ func TestValidateResourceTypes(t *testing.T) {
 		h := &Harness{
 			Agent:      "agents/test.md",
 			Policy:     "policies/readonly.yaml",
-			Skills:     []string{"skills/summarize"},
+			Skills:     []SkillEntry{{Source: "skills/summarize"}},
 			PreScript:  "scripts/pre.sh",
 			PostScript: "scripts/post.sh",
 			HostFiles:  []HostFile{{Src: "/etc/ssl/certs/ca.crt", Dest: "/tmp/ca.crt"}},
@@ -1239,7 +1239,7 @@ func TestValidateResourceTypes(t *testing.T) {
 	t.Run("URL in skills without hash", func(t *testing.T) {
 		h := &Harness{
 			Agent:  "agents/test.md",
-			Skills: []string{"https://example.com/skills/summarize.md"},
+			Skills: []SkillEntry{{Source: "https://example.com/skills/summarize.md"}},
 		}
 		err := h.ValidateResourceTypes()
 		require.Error(t, err)
@@ -1328,7 +1328,7 @@ func TestHasURLReferences(t *testing.T) {
 	}{
 		{
 			name: "local only",
-			h:    Harness{Agent: "agents/test.md", Policy: "policies/p.yaml", Skills: []string{"skills/a"}},
+			h:    Harness{Agent: "agents/test.md", Policy: "policies/p.yaml", Skills: []SkillEntry{{Source: "skills/a"}}},
 			want: false,
 		},
 		{
@@ -1348,7 +1348,7 @@ func TestHasURLReferences(t *testing.T) {
 		},
 		{
 			name: "URL skill",
-			h:    Harness{Agent: "agents/test.md", Skills: []string{"skills/a", "https://example.com/s.md#sha256=abc"}},
+			h:    Harness{Agent: "agents/test.md", Skills: []SkillEntry{{Source: "skills/a"}, {Source: "https://example.com/s.md#sha256=abc"}}},
 			want: true,
 		},
 		{
@@ -1379,6 +1379,22 @@ func TestHasURLReferences(t *testing.T) {
 		{
 			name: "local profile only",
 			h:    Harness{Agent: "agents/test.md", OpenShell: &OpenShellConfig{Profiles: []string{"/cache/profiles/net.yaml"}}},
+			want: false,
+		},
+		{
+			name: "URL skill override value",
+			h: Harness{Agent: "agents/test.md", Skills: []SkillEntry{{
+				Source:    "skills/pr-review",
+				Overrides: map[string]*string{"sub-agents/x.md": strPtr("https://example.com/x.md#sha256=abc")},
+			}}},
+			want: true,
+		},
+		{
+			name: "local skill override value",
+			h: Harness{Agent: "agents/test.md", Skills: []SkillEntry{{
+				Source:    "skills/pr-review",
+				Overrides: map[string]*string{"sub-agents/x.md": strPtr("local/override.md")},
+			}}},
 			want: false,
 		},
 	}
@@ -1558,7 +1574,7 @@ skills:
 	h, err := LoadRaw(path)
 	require.NoError(t, err)
 	assert.Empty(t, h.Agent)
-	assert.Equal(t, []string{"skills/a"}, h.Skills)
+	assert.Equal(t, []string{"skills/a"}, SkillSources(h.Skills))
 }
 
 func TestLoadRaw_PreservesForgeMap(t *testing.T) {
@@ -1607,7 +1623,7 @@ forge:
 	h, err := LoadWithOpts(path, LoadOpts{ForgePlatform: "github"})
 	require.NoError(t, err)
 	assert.Equal(t, "scripts/pre-gh.sh", h.PreScript)
-	assert.Equal(t, []string{"skills/common", "skills/gh-specific"}, h.Skills)
+	assert.Equal(t, []string{"skills/common", "skills/gh-specific"}, SkillSources(h.Skills))
 	assert.Nil(t, h.Forge, "forge map should be consumed after ResolveForge")
 }
 
@@ -1984,6 +2000,41 @@ func TestValidateResourceTypes_ProviderURLWithHashValid(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestValidateResourceTypes_OverrideURLRequiresHash(t *testing.T) {
+	h := &Harness{
+		Agent: "agents/test.md",
+		Role:  "test",
+		Skills: []SkillEntry{
+			{
+				Source: "skills/pr-review",
+				Overrides: map[string]*string{
+					"sub-agents/security.md": strPtr("https://github.com/org/repo/blob/main/overrides/security.md"),
+				},
+			},
+		},
+	}
+	err := h.ValidateResourceTypes()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "skills[0].overrides[sub-agents/security.md] URL must include #sha256=")
+}
+
+func TestValidateResourceTypes_OverrideURLWithHashValid(t *testing.T) {
+	h := &Harness{
+		Agent: "agents/test.md",
+		Role:  "test",
+		Skills: []SkillEntry{
+			{
+				Source: "skills/pr-review",
+				Overrides: map[string]*string{
+					"sub-agents/security.md": strPtr("https://github.com/org/repo/blob/main/overrides/security.md#sha256=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+				},
+			},
+		},
+	}
+	err := h.ValidateResourceTypes()
+	require.NoError(t, err)
+}
+
 func TestValidateResourceTypes_PluginURLRequiresHash(t *testing.T) {
 	h := &Harness{
 		Agent:   "agents/test.md",
@@ -2045,11 +2096,9 @@ func TestValidateResourceTypes_PluginNonGitHubForgeRejected(t *testing.T) {
 
 func TestValidateResourceTypes_SkillBlobURLRejected(t *testing.T) {
 	h := &Harness{
-		Agent: "agents/test.md",
-		Role:  "test",
-		Skills: []string{
-			"https://github.com/org/repo/blob/main/skills/test/SKILL.md#sha256=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-		},
+		Agent:  "agents/test.md",
+		Role:   "test",
+		Skills: []SkillEntry{{Source: "https://github.com/org/repo/blob/main/skills/test/SKILL.md#sha256=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}},
 	}
 	err := h.ValidateResourceTypes()
 	require.Error(t, err)
@@ -2071,11 +2120,9 @@ func TestValidateResourceTypes_PluginBlobURLRejected(t *testing.T) {
 
 func TestValidateResourceTypes_SkillRepoRootURLRejected(t *testing.T) {
 	h := &Harness{
-		Agent: "agents/test.md",
-		Role:  "test",
-		Skills: []string{
-			"https://github.com/org/myskills/tree/main#sha256=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-		},
+		Agent:  "agents/test.md",
+		Role:   "test",
+		Skills: []SkillEntry{{Source: "https://github.com/org/myskills/tree/main#sha256=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}},
 	}
 	err := h.ValidateResourceTypes()
 	require.Error(t, err)
@@ -2132,14 +2179,14 @@ providers:
 func TestHasURLDirResources(t *testing.T) {
 	tests := []struct {
 		name    string
-		skills  []string
+		skills  []SkillEntry
 		plugins []string
 		want    bool
 	}{
-		{"no URLs", []string{"local-skill"}, []string{"local-plugin"}, false},
-		{"URL skill", []string{"https://github.com/org/repo/tree/main/skill#sha256=abc"}, nil, true},
+		{"no URLs", []SkillEntry{{Source: "local-skill"}}, []string{"local-plugin"}, false},
+		{"URL skill", []SkillEntry{{Source: "https://github.com/org/repo/tree/main/skill#sha256=abc"}}, nil, true},
 		{"URL plugin", nil, []string{"https://github.com/org/repo/tree/main/plugin#sha256=abc"}, true},
-		{"both local", []string{"s1"}, []string{"p1"}, false},
+		{"both local", []SkillEntry{{Source: "s1"}}, []string{"p1"}, false},
 		{"empty", nil, nil, false},
 	}
 	for _, tt := range tests {

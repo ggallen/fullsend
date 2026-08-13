@@ -290,7 +290,7 @@ allowed_remote_resources:
 	assert.Equal(t, "directory", skillDep.Type)
 	assert.Equal(t, treeHash, skillDep.SHA256)
 	assert.True(t, skillDep.CacheHit)
-	assert.Equal(t, "test", filepath.Base(h2.Skills[0]), "skill path basename should be the skill directory name")
+	assert.Equal(t, "test", filepath.Base(h2.Skills[0].Source), "skill path basename should be the skill directory name")
 }
 
 func TestRunLock_NoURLReferences(t *testing.T) {
@@ -625,7 +625,7 @@ func TestResolveFromLock_SkillSlots(t *testing.T) {
 
 	h := &harness.Harness{
 		Agent:                  "agents/code.md",
-		Skills:                 []string{"https://example.com/skills/a#sha256=" + hashA, "https://example.com/skills/b#sha256=" + hashB},
+		Skills:                 []harness.SkillEntry{{Source: "https://example.com/skills/a#sha256=" + hashA}, {Source: "https://example.com/skills/b#sha256=" + hashB}},
 		AllowedRemoteResources: []string{"https://example.com/", "https://github.com/"},
 	}
 
@@ -634,8 +634,8 @@ func TestResolveFromLock_SkillSlots(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, lockResult.Deps, 2)
 
-	assert.True(t, strings.HasSuffix(h.Skills[0], "/content"))
-	assert.True(t, strings.HasSuffix(h.Skills[1], "/content"))
+	assert.True(t, strings.HasSuffix(h.Skills[0].Source, "/content"))
+	assert.True(t, strings.HasSuffix(h.Skills[1].Source, "/content"))
 }
 
 func TestResolveFromLock_TransitiveDeps(t *testing.T) {
@@ -653,7 +653,7 @@ func TestResolveFromLock_TransitiveDeps(t *testing.T) {
 
 	h := &harness.Harness{
 		Agent:                  "agents/code.md",
-		Skills:                 []string{},
+		Skills:                 []harness.SkillEntry{},
 		AllowedRemoteResources: []string{"https://example.com/", "https://github.com/"},
 	}
 
@@ -664,7 +664,7 @@ func TestResolveFromLock_TransitiveDeps(t *testing.T) {
 
 	// Transitive deps are appended as new skill entries.
 	require.Len(t, h.Skills, 1)
-	assert.True(t, strings.HasSuffix(h.Skills[0], "/content"))
+	assert.True(t, strings.HasSuffix(h.Skills[0].Source, "/content"))
 }
 
 func TestResolveFromLock_DiamondDependency(t *testing.T) {
@@ -685,8 +685,8 @@ func TestResolveFromLock_DiamondDependency(t *testing.T) {
 
 	h := &harness.Harness{
 		Agent: "agents/code.md",
-		Skills: []string{
-			"https://example.com/skills/shared.md#sha256=" + sharedHash,
+		Skills: []harness.SkillEntry{
+			{Source: "https://example.com/skills/shared.md#sha256=" + sharedHash},
 		},
 		AllowedRemoteResources: []string{"https://example.com/", "https://github.com/"},
 	}
@@ -699,7 +699,7 @@ func TestResolveFromLock_DiamondDependency(t *testing.T) {
 	// The direct URL reference should be filtered out.
 	// Only the transitive dep (appended) should remain.
 	require.Len(t, h.Skills, 1)
-	assert.True(t, strings.HasSuffix(h.Skills[0], "/content"))
+	assert.True(t, strings.HasSuffix(h.Skills[0].Source, "/content"))
 }
 
 func TestResolveFromLock_DirectoryType(t *testing.T) {
@@ -732,7 +732,7 @@ func TestResolveFromLock_DirectoryType(t *testing.T) {
 
 	h := &harness.Harness{
 		Agent:                  "agents/code.md",
-		Skills:                 []string{"https://github.com/org/repo/tree/main/skills/test#sha256=" + treeHash},
+		Skills:                 []harness.SkillEntry{{Source: "https://github.com/org/repo/tree/main/skills/test#sha256=" + treeHash}},
 		AllowedRemoteResources: []string{"https://example.com/", "https://github.com/"},
 	}
 
@@ -744,7 +744,7 @@ func TestResolveFromLock_DirectoryType(t *testing.T) {
 	assert.Equal(t, "directory", lockResult.Deps[0].Type)
 	assert.Equal(t, treeHash, lockResult.Deps[0].SHA256)
 	assert.True(t, lockResult.Deps[0].CacheHit)
-	assert.Equal(t, "test", filepath.Base(h.Skills[0]), "skill basename must be the real skill name, not 'tree'")
+	assert.Equal(t, "test", filepath.Base(h.Skills[0].Source), "skill basename must be the real skill name, not 'tree'")
 }
 
 func TestResolveFromLock_DirectoryTypeScript(t *testing.T) {
@@ -818,7 +818,7 @@ func TestResolveFromLock_EmptyTypeDefaultsToFile(t *testing.T) {
 
 	h := &harness.Harness{
 		Agent:                  "agents/code.md",
-		Skills:                 []string{"https://example.com/skills/a#sha256=" + hash},
+		Skills:                 []harness.SkillEntry{{Source: "https://example.com/skills/a#sha256=" + hash}},
 		AllowedRemoteResources: []string{"https://example.com/", "https://github.com/"},
 	}
 
@@ -844,7 +844,7 @@ func TestResolveFromLock_TransitivePolicySkipped(t *testing.T) {
 
 	h := &harness.Harness{
 		Agent:                  "agents/code.md",
-		Skills:                 []string{},
+		Skills:                 []harness.SkillEntry{},
 		AllowedRemoteResources: []string{"https://example.com/", "https://github.com/"},
 	}
 
@@ -951,7 +951,7 @@ func TestResolveFromLock_BaseFieldNoOp(t *testing.T) {
 
 	h := &harness.Harness{
 		Agent:                  "https://example.com/agents/code.md#sha256=" + agentHash,
-		Skills:                 []string{"https://example.com/skills/a#sha256=" + skillHash},
+		Skills:                 []harness.SkillEntry{{Source: "https://example.com/skills/a#sha256=" + skillHash}},
 		AllowedRemoteResources: []string{"https://example.com/", "https://github.com/"},
 	}
 
@@ -968,7 +968,7 @@ func TestResolveFromLock_BaseFieldNoOp(t *testing.T) {
 	// Skills should have exactly one entry (the resolved skill), not two.
 	// The base dep must NOT be appended to skills.
 	require.Len(t, h.Skills, 1, "base dep must not be appended to skills")
-	assert.True(t, strings.HasSuffix(h.Skills[0], "/content"), "skill should be resolved to cache path")
+	assert.True(t, strings.HasSuffix(h.Skills[0].Source, "/content"), "skill should be resolved to cache path")
 
 	// Verify the base dep has the correct field and is a cache hit.
 	var baseDep *resolve.Dependency
@@ -1015,7 +1015,7 @@ func TestResolveFromLock_AgentSourceNoOp(t *testing.T) {
 
 	h := &harness.Harness{
 		Agent:                  "https://example.com/agents/code.md#sha256=" + agentHash,
-		Skills:                 []string{"https://example.com/skills/a#sha256=" + skillHash},
+		Skills:                 []harness.SkillEntry{{Source: "https://example.com/skills/a#sha256=" + skillHash}},
 		AllowedRemoteResources: []string{"https://example.com/"},
 	}
 
@@ -1029,7 +1029,7 @@ func TestResolveFromLock_AgentSourceNoOp(t *testing.T) {
 	// Skills should have exactly one entry — the agent_source dep must NOT
 	// be appended to skills.
 	require.Len(t, h.Skills, 1, "agent_source dep must not be appended to skills")
-	assert.True(t, strings.HasSuffix(h.Skills[0], "/content"), "skill should be resolved to cache path")
+	assert.True(t, strings.HasSuffix(h.Skills[0].Source, "/content"), "skill should be resolved to cache path")
 }
 
 func TestResolveFromLock_ValidationLoopSchema(t *testing.T) {
@@ -1879,7 +1879,7 @@ func TestResolveFromLock_PluginSharedURLWithSkill(t *testing.T) {
 
 	h := &harness.Harness{
 		Agent:                  "agents/code.md",
-		Skills:                 []string{sharedURL + "#sha256=" + treeHash},
+		Skills:                 []harness.SkillEntry{{Source: sharedURL + "#sha256=" + treeHash}},
 		Plugins:                []string{sharedURL + "#sha256=" + treeHash},
 		AllowedRemoteResources: []string{"https://github.com/"},
 	}
@@ -1978,7 +1978,7 @@ func TestResolveFromLock_SkillRawContentURL(t *testing.T) {
 
 	h := &harness.Harness{
 		Agent:                  "agents/code.md",
-		Skills:                 []string{"skills/pr-review", "skills/code-review"},
+		Skills:                 []harness.SkillEntry{{Source: "skills/pr-review"}, {Source: "skills/code-review"}},
 		AllowedRemoteResources: []string{"https://raw.githubusercontent.com/fullsend-ai/"},
 	}
 
@@ -1988,13 +1988,13 @@ func TestResolveFromLock_SkillRawContentURL(t *testing.T) {
 	require.Len(t, lockResult.Deps, 2)
 	require.Len(t, h.Skills, 2)
 
-	assert.Equal(t, "pr-review", filepath.Base(h.Skills[0]),
+	assert.Equal(t, "pr-review", filepath.Base(h.Skills[0].Source),
 		"skill basename must be derived from the URL directory, not the SKILL.md marker file")
-	assert.Equal(t, "code-review", filepath.Base(h.Skills[1]),
+	assert.Equal(t, "code-review", filepath.Base(h.Skills[1].Source),
 		"skills must keep distinct basenames — identical ones collide on sandbox upload")
 	for _, s := range h.Skills {
-		assert.False(t, harness.IsURL(s))
-		assert.FileExists(t, filepath.Join(s, "SKILL.md"))
+		assert.False(t, harness.IsURL(s.Source))
+		assert.FileExists(t, filepath.Join(s.Source, "SKILL.md"))
 	}
 }
 
@@ -2035,7 +2035,7 @@ func TestResolveFromLock_ForgeScopedSkillNoMutation(t *testing.T) {
 
 	h := &harness.Harness{
 		Agent:                  "agents/code.md",
-		Skills:                 []string{mergedPath},
+		Skills:                 []harness.SkillEntry{{Source: mergedPath}},
 		AllowedRemoteResources: []string{"https://raw.githubusercontent.com/fullsend-ai/"},
 	}
 
@@ -2045,7 +2045,7 @@ func TestResolveFromLock_ForgeScopedSkillNoMutation(t *testing.T) {
 	require.Len(t, lockResult.Deps, 1)
 
 	require.Len(t, h.Skills, 1, "forge-scoped skill lock entries must not append to h.Skills")
-	assert.Equal(t, mergedPath, h.Skills[0])
+	assert.Equal(t, mergedPath, h.Skills[0].Source)
 }
 
 func TestResolveFromLock_SkillRepoRootURLRejected(t *testing.T) {
@@ -2076,7 +2076,7 @@ func TestResolveFromLock_SkillRepoRootURLRejected(t *testing.T) {
 
 	h := &harness.Harness{
 		Agent:                  "agents/code.md",
-		Skills:                 []string{"skills/x"},
+		Skills:                 []harness.SkillEntry{{Source: "skills/x"}},
 		AllowedRemoteResources: []string{"https://github.com/fullsend-ai/"},
 	}
 
@@ -2211,7 +2211,7 @@ func TestResolveFromLock_LocalPathsSurviveStrip(t *testing.T) {
 
 	h := &harness.Harness{
 		Agent:  "agents/code.md",
-		Skills: []string{"https://example.com/skills/my.yaml#sha256=" + skillHash},
+		Skills: []harness.SkillEntry{{Source: "https://example.com/skills/my.yaml#sha256=" + skillHash}},
 		OpenShell: &harness.OpenShellConfig{
 			Profiles: []string{"/workspace/.fullsend/profiles/claude-code.yaml"},
 		},

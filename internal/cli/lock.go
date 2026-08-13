@@ -965,10 +965,10 @@ func resolveFromLock(h *harness.Harness, entry *lock.HarnessLock, workspaceRoot 
 		default:
 			var idx int
 			if _, err := fmt.Sscanf(m.field, "skills[%d]", &idx); err == nil && idx >= 0 && idx < len(h.Skills) {
-				h.Skills[idx] = m.localPath
+				h.Skills[idx].Source = m.localPath
 			} else {
 				// Transitive skill dependency — append as additional skill.
-				h.Skills = append(h.Skills, m.localPath)
+				h.Skills = append(h.Skills, harness.SkillEntry{Source: m.localPath})
 			}
 		}
 	}
@@ -978,13 +978,13 @@ func resolveFromLock(h *harness.Harness, entry *lock.HarnessLock, workspaceRoot 
 	// lock file deduplicates by URL, so the direct reference has no lock
 	// entry. The transitive dep was appended above; the direct URL is
 	// redundant and must be filtered out, mirroring resolve.ResolveHarness.
-	filtered := h.Skills[:0]
+	filteredSkills := h.Skills[:0]
 	for _, s := range h.Skills {
-		if !harness.IsURL(s) {
-			filtered = append(filtered, s)
+		if !harness.IsURL(s.Source) {
+			filteredSkills = append(filteredSkills, s)
 		}
 	}
-	h.Skills = filtered
+	h.Skills = filteredSkills
 
 	// Resolve plugins that still hold URLs because the lock file
 	// deduplicated them under another field (e.g. skills[0]).
@@ -1001,13 +1001,13 @@ func resolveFromLock(h *harness.Harness, entry *lock.HarnessLock, workspaceRoot 
 	}
 
 	// Remove any remaining URL entries from plugins, mirroring skills above.
-	filtered = h.Plugins[:0]
+	filteredPlugins := h.Plugins[:0]
 	for _, p := range h.Plugins {
 		if !harness.IsURL(p) {
-			filtered = append(filtered, p)
+			filteredPlugins = append(filteredPlugins, p)
 		}
 	}
-	h.Plugins = filtered
+	h.Plugins = filteredPlugins
 
 	// De-duplicate plugins by resolved path and set executable permissions.
 	seen := make(map[string]bool, len(h.Plugins))

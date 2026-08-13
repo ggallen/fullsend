@@ -90,7 +90,7 @@ forge:
 		"base-skill-1", "base-skill-2", // from base top-level
 		"child-skill-1",  // from child top-level
 		"gh-forge-skill", // from forge.github
-	}, h.Skills)
+	}, SkillSources(h.Skills))
 
 	// RunnerEnv = base env merged with forge env (forge keys win).
 	// Note: child top-level has no runner_env, so base runner_env is inherited,
@@ -153,7 +153,7 @@ forge:
 		"child-s1",       // child top-level
 		"base-forge-s1",  // base forge.github (merged into child forge)
 		"child-forge-s1", // child forge.github
-	}, h.Skills)
+	}, SkillSources(h.Skills))
 }
 
 // TestLoadWithBase_EnvMergesThroughFullPipeline exercises the full load pipeline
@@ -258,7 +258,7 @@ forge:
 	// Compare field by field for clarity on failures.
 	assert.Equal(t, hOpts.Agent, hBase.Agent)
 	assert.Equal(t, hOpts.Model, hBase.Model)
-	assert.Equal(t, hOpts.Skills, hBase.Skills)
+	assert.Equal(t, SkillSources(hOpts.Skills), SkillSources(hBase.Skills))
 	assert.Equal(t, hOpts.RunnerEnv, hBase.RunnerEnv)
 	assert.Equal(t, hOpts.TimeoutMinutes, hBase.TimeoutMinutes)
 	assert.Equal(t, hOpts.PreScript, hBase.PreScript)

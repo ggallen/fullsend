@@ -15,7 +15,7 @@ type ForgeConfig struct {
 	PreScript      string            `yaml:"pre_script,omitempty"`
 	PostScript     string            `yaml:"post_script,omitempty"`
 	Policy         string            `yaml:"policy,omitempty"`
-	Skills         []string          `yaml:"skills,omitempty"`
+	Skills         []SkillEntry      `yaml:"skills,omitempty"` // SkillEntry (not string) to support file-level overrides
 	Providers      []string          `yaml:"providers,omitempty"`
 	OpenShell      *OpenShellConfig  `yaml:"openshell,omitempty"`
 	HostFiles      []HostFile        `yaml:"host_files,omitempty"`
@@ -66,11 +66,14 @@ func (h *Harness) validateForge() error {
 			return fmt.Errorf("forge.%s.post_script must be a local path, not a URL", key)
 		}
 		for i, s := range fc.Skills {
-			if IsURL(s) {
-				if _, _, hasHash := ParseIntegrityHash(s); !hasHash {
+			if IsURL(s.Source) {
+				if _, _, hasHash := ParseIntegrityHash(s.Source); !hasHash {
 					return fmt.Errorf("forge.%s.skills[%d] URL must include #sha256=... integrity hash", key, i)
 				}
 			}
+		}
+		if err := ValidateSkillOverrides(fc.Skills); err != nil {
+			return fmt.Errorf("forge.%s: %w", key, err)
 		}
 		for i, p := range fc.Providers {
 			if IsURL(p) {

@@ -477,7 +477,7 @@ type ForgeConfig struct {
     PreScript      string            `yaml:"pre_script,omitempty"`
     PostScript     string            `yaml:"post_script,omitempty"`
     Policy         string            `yaml:"policy,omitempty"`
-    Skills         []string          `yaml:"skills,omitempty"`
+    Skills         []SkillEntry      `yaml:"skills,omitempty"` // updated from []string in #6159
     Providers      []string          `yaml:"providers,omitempty"`
     OpenShell      *OpenShellConfig  `yaml:"openshell,omitempty"`
     HostFiles      []HostFile        `yaml:"host_files,omitempty"` // added in #5917

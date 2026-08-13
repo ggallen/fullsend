@@ -296,7 +296,7 @@ type Harness struct {
 	Base                   string                  `yaml:"base,omitempty"`
 	Image                  string                  `yaml:"image,omitempty"`
 	Policy                 string                  `yaml:"policy,omitempty"`
-	Skills                 []string                `yaml:"skills,omitempty"`
+	Skills                 []SkillEntry            `yaml:"skills,omitempty"`
 	Plugins                []string                `yaml:"plugins,omitempty"`
 	Providers              []string                `yaml:"providers,omitempty"`
 	OpenShell              *OpenShellConfig        `yaml:"openshell,omitempty"`
@@ -569,8 +569,20 @@ func (h *Harness) ResolveRelativeTo(baseDir string) error {
 	}
 
 	for i := range h.Skills {
-		if h.Skills[i], err = resolve(fmt.Sprintf("skills[%d]", i), h.Skills[i]); err != nil {
-			return err
+		resolved, resolveErr := resolve(fmt.Sprintf("skills[%d]", i), h.Skills[i].Source)
+		if resolveErr != nil {
+			return resolveErr
+		}
+		h.Skills[i].Source = resolved
+		for key, val := range h.Skills[i].Overrides {
+			if val == nil {
+				continue // null = removal, nothing to resolve
+			}
+			resolved, resolveErr := resolve(fmt.Sprintf("skills[%d].overrides[%s]", i, key), *val)
+			if resolveErr != nil {
+				return resolveErr
+			}
+			*h.Skills[i].Overrides[key] = resolved
 		}
 	}
 	for i := range h.Plugins {
@@ -709,8 +721,15 @@ func (h *Harness) ValidateFilesExist() error {
 		return err
 	}
 	for i, s := range h.Skills {
-		if err := check(fmt.Sprintf("skills[%d]", i), s); err != nil {
+		if err := check(fmt.Sprintf("skills[%d]", i), s.Source); err != nil {
 			return err
+		}
+		for key, val := range s.Overrides {
+			if val != nil {
+				if err := check(fmt.Sprintf("skills[%d].overrides[%s]", i, key), *val); err != nil {
+					return err
+				}
+			}
 		}
 	}
 	for i, p := range h.Plugins {
@@ -869,8 +888,8 @@ func (h *Harness) ValidateResourceTypes() error {
 		}
 	}
 	for i, s := range h.Skills {
-		if IsURL(s) {
-			cleanURL, _, hasHash := ParseIntegrityHash(s)
+		if IsURL(s.Source) {
+			cleanURL, _, hasHash := ParseIntegrityHash(s.Source)
 			if !hasHash {
 				return fmt.Errorf("skills[%d] URL must include #sha256=... integrity hash", i)
 			}
@@ -888,6 +907,18 @@ func (h *Harness) ValidateResourceTypes() error {
 				return fmt.Errorf("skills[%d] URL must point to a directory inside the repo, not the repo root", i)
 			}
 		}
+	}
+	for i, s := range h.Skills {
+		for key, val := range s.Overrides {
+			if val != nil && IsURL(*val) {
+				if _, _, hasHash := ParseIntegrityHash(*val); !hasHash {
+					return fmt.Errorf("skills[%d].overrides[%s] URL must include #sha256=... integrity hash", i, key)
+				}
+			}
+		}
+	}
+	if err := ValidateSkillOverrides(h.Skills); err != nil {
+		return err
 	}
 	for i, p := range h.Plugins {
 		if IsURL(p) {
@@ -951,7 +982,7 @@ func (h *Harness) EffectiveMaxRuntimeFetches() int {
 // URL. Used to determine whether a forge client is needed for resolution.
 func (h *Harness) HasURLDirResources() bool {
 	for _, s := range h.Skills {
-		if IsURL(s) {
+		if IsURL(s.Source) {
 			return true
 		}
 	}
@@ -971,8 +1002,13 @@ func (h *Harness) HasURLReferences() bool {
 		return true
 	}
 	for _, s := range h.Skills {
-		if IsURL(s) {
+		if IsURL(s.Source) {
 			return true
+		}
+		for _, val := range s.Overrides {
+			if val != nil && IsURL(*val) {
+				return true
+			}
 		}
 	}
 	for _, p := range h.Plugins {
