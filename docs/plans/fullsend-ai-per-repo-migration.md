@@ -58,7 +58,15 @@ Order:
 3. agents
 4. fullsend
 
-## Phase 2: Manual cleanup
+## Phase 2: Unenroll org from mint
+
+Remove the org from the mint's `ALLOWED_ORGS` and WIF provider condition to block per-org token generation. Per-repo WIF registrations (added by migrate in step 9) are unaffected — they use `PER_REPO_WIF_REPOS`, a separate env var.
+
+```bash
+fullsend mint unenroll fullsend-ai --project <GCP_PROJECT_ID>
+```
+
+## Phase 3: Manual cleanup
 
 ### Org-level variable (delete 1)
 
