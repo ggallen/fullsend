@@ -19,7 +19,7 @@ For the targeted repo, `repos migrate` performs these steps:
 4. **Provisions WIF** — checks if GCP Workload Identity Federation is already set up for the repo; provisions it if not
 5. **Builds per-repo config** — carries over portable org config fields: roles, allowed_remote_resources, agents, create_issues, kill_switch, runtime
 6. **Commits scaffold files** — writes `.github/workflows/fullsend.yaml` and `.fullsend/config.yaml` directly to the default branch (with `--direct`)
-7. **Writes repo-level variables** — `FULLSEND_MINT_URL`, `FULLSEND_PER_REPO_INSTALL`, `FULLSEND_GCP_REGION`
+7. **Writes repo-level variables** — `FULLSEND_MINT_URL` (hardcoded to `https://mint.fullsend.sh`), `FULLSEND_PER_REPO_INSTALL`, `FULLSEND_GCP_REGION`
 8. **Writes repo-level secrets** — `FULLSEND_GCP_PROJECT_ID`, `FULLSEND_GCP_WIF_PROVIDER`
 9. **Registers per-repo WIF with mint** — adds the repo to the mint service's `PER_REPO_WIF_REPOS` (serialized to avoid race conditions)
 10. **Unenrolls from per-org config** — sets `enabled: false` for the repo in `.fullsend/config.yaml` and commits the update
