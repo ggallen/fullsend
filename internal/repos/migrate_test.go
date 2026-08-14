@@ -56,27 +56,6 @@ func (p *fakeProvisioner) Provision(_ context.Context, owner, repo string) (stri
 	return p.provisionResults[key], nil
 }
 
-// fakeMintRegistrar implements MintRegistrar for tests.
-type fakeMintRegistrar struct {
-	mu    sync.Mutex
-	calls []string
-	errs  map[string]error
-}
-
-func newFakeMintRegistrar() *fakeMintRegistrar {
-	return &fakeMintRegistrar{errs: make(map[string]error)}
-}
-
-func (m *fakeMintRegistrar) RegisterPerRepoWIF(_ context.Context, repo string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.calls = append(m.calls, repo)
-	if err, ok := m.errs[repo]; ok {
-		return err
-	}
-	return nil
-}
-
 func nopScaffoldCommit(_ context.Context, _, _ string, _ []forge.TreeFile, _ bool) error {
 	return nil
 }
@@ -86,7 +65,7 @@ func nopScaffoldCommit(_ context.Context, _, _ string, _ []forge.TreeFile, _ boo
 func TestMigrate_EmptyOrg_ReturnsError(t *testing.T) {
 	_, err := Migrate(context.Background(), MigrateConfig{
 		Project: "my-project",
-	}, newTestClientFactory(forge.NewFakeClient()), newFakeProvisioner(), nil, nopScaffoldCommit, nopProgress)
+	}, newTestClientFactory(forge.NewFakeClient()), newFakeProvisioner(), nopScaffoldCommit, nopProgress)
 
 	assert.Error(t, err)
 	assert.ErrorContains(t, err, "org is required")
@@ -95,7 +74,7 @@ func TestMigrate_EmptyOrg_ReturnsError(t *testing.T) {
 func TestMigrate_EmptyProject_ReturnsError(t *testing.T) {
 	_, err := Migrate(context.Background(), MigrateConfig{
 		Org: "acme",
-	}, newTestClientFactory(forge.NewFakeClient()), newFakeProvisioner(), nil, nopScaffoldCommit, nopProgress)
+	}, newTestClientFactory(forge.NewFakeClient()), newFakeProvisioner(), nopScaffoldCommit, nopProgress)
 
 	assert.Error(t, err)
 	assert.ErrorContains(t, err, "project is required")
@@ -107,7 +86,7 @@ func TestMigrate_NoConfigRepo_ReturnsError(t *testing.T) {
 	_, err := Migrate(context.Background(), MigrateConfig{
 		Org:     "acme",
 		Project: "my-project",
-	}, newTestClientFactory(fc), newFakeProvisioner(), nil, nopScaffoldCommit, nopProgress)
+	}, newTestClientFactory(fc), newFakeProvisioner(), nopScaffoldCommit, nopProgress)
 
 	assert.Error(t, err)
 	assert.ErrorContains(t, err, "nothing to migrate")
@@ -127,7 +106,7 @@ repos:
 	result, err := Migrate(context.Background(), MigrateConfig{
 		Org:     "acme",
 		Project: "my-project",
-	}, newTestClientFactory(fc), newFakeProvisioner(), nil, nopScaffoldCommit, nopProgress)
+	}, newTestClientFactory(fc), newFakeProvisioner(), nopScaffoldCommit, nopProgress)
 
 	require.NoError(t, err)
 	assert.Empty(t, result.Migrated)
@@ -169,7 +148,7 @@ repos:
 		Project:        "my-project",
 		MaxConcurrency: 2,
 		CLIVersion:     "2.0.0",
-	}, newTestClientFactory(fc), prov, nil, nopScaffoldCommit, nopProgress)
+	}, newTestClientFactory(fc), prov, nopScaffoldCommit, nopProgress)
 
 	require.NoError(t, err)
 	assert.Len(t, result.Migrated, 3)
@@ -212,7 +191,7 @@ repos:
 	result, err := Migrate(context.Background(), MigrateConfig{
 		Org:     "acme",
 		Project: "my-project",
-	}, newTestClientFactory(fc), prov, nil, nopScaffoldCommit, nopProgress)
+	}, newTestClientFactory(fc), prov, nopScaffoldCommit, nopProgress)
 
 	require.NoError(t, err)
 	assert.Len(t, result.Skipped, 1, "api should be skipped")
@@ -244,7 +223,7 @@ repos:
 	result, err := Migrate(context.Background(), MigrateConfig{
 		Org:     "acme",
 		Project: "my-project",
-	}, newTestClientFactory(fc), prov, nil, nopScaffoldCommit, nopProgress)
+	}, newTestClientFactory(fc), prov, nopScaffoldCommit, nopProgress)
 
 	require.NoError(t, err)
 	assert.Len(t, result.Migrated, 1)
@@ -280,7 +259,7 @@ repos:
 		Org:            "acme",
 		Project:        "my-project",
 		MaxConcurrency: 1,
-	}, newTestClientFactory(fc), prov, nil, nopScaffoldCommit, nopProgress)
+	}, newTestClientFactory(fc), prov, nopScaffoldCommit, nopProgress)
 
 	require.NoError(t, err)
 	assert.Len(t, result.Failed, 1, "api should have failed")
@@ -311,7 +290,7 @@ repos:
 		Org:     "acme",
 		Project: "my-project",
 		DryRun:  true,
-	}, newTestClientFactory(fc), prov, nil, nopScaffoldCommit, nopProgress)
+	}, newTestClientFactory(fc), prov, nopScaffoldCommit, nopProgress)
 
 	require.NoError(t, err)
 	assert.Len(t, result.Migrated, 1)
@@ -350,7 +329,7 @@ repos:
 		Org:        "acme",
 		Project:    "my-project",
 		RepoFilter: []string{"api"},
-	}, newTestClientFactory(fc), prov, nil, nopScaffoldCommit, nopProgress)
+	}, newTestClientFactory(fc), prov, nopScaffoldCommit, nopProgress)
 
 	require.NoError(t, err)
 	assert.Len(t, result.Migrated, 1)
@@ -383,7 +362,7 @@ repos:
 		Org:        "acme",
 		Project:    "my-project",
 		RepoFilter: []string{"acme/web"},
-	}, newTestClientFactory(fc), prov, nil, nopScaffoldCommit, nopProgress)
+	}, newTestClientFactory(fc), prov, nopScaffoldCommit, nopProgress)
 
 	require.NoError(t, err)
 	assert.Len(t, result.Migrated, 1)
@@ -420,7 +399,7 @@ repos:
 		Org:        "acme",
 		Project:    "my-project",
 		RepoFilter: []string{"api-*"},
-	}, newTestClientFactory(fc), prov, nil, nopScaffoldCommit, nopProgress)
+	}, newTestClientFactory(fc), prov, nopScaffoldCommit, nopProgress)
 
 	require.NoError(t, err)
 	assert.Len(t, result.Migrated, 2)
@@ -450,7 +429,7 @@ repos:
 		Org:        "acme",
 		Project:    "my-project",
 		CLIVersion: "2.0.0",
-	}, newTestClientFactory(fc), prov, nil, nopScaffoldCommit, nopProgress)
+	}, newTestClientFactory(fc), prov, nopScaffoldCommit, nopProgress)
 
 	require.NoError(t, err)
 	require.NotNil(t, result.Manifest)
@@ -561,7 +540,7 @@ repos:
 	result, err := Migrate(context.Background(), MigrateConfig{
 		Org:     "acme",
 		Project: "my-project",
-	}, newTestClientFactory(fc), prov, nil, nopScaffoldCommit, nopProgress)
+	}, newTestClientFactory(fc), prov, nopScaffoldCommit, nopProgress)
 
 	require.NoError(t, err)
 	assert.Len(t, result.Migrated, 1)
@@ -594,7 +573,7 @@ repos:
 	result, err := Migrate(context.Background(), MigrateConfig{
 		Org:     "acme",
 		Project: "my-project",
-	}, newTestClientFactory(fc), prov, nil, nopScaffoldCommit, nopProgress)
+	}, newTestClientFactory(fc), prov, nopScaffoldCommit, nopProgress)
 
 	require.NoError(t, err)
 	assert.Len(t, result.Migrated, 1)
@@ -664,7 +643,7 @@ repos:
 		Org:            "acme",
 		Project:        "my-project",
 		MaxConcurrency: 100,
-	}, newTestClientFactory(fc), prov, nil, nopScaffoldCommit, nopProgress)
+	}, newTestClientFactory(fc), prov, nopScaffoldCommit, nopProgress)
 
 	require.NoError(t, err)
 	assert.Len(t, result.Migrated, 1)
@@ -684,7 +663,7 @@ repos:
 	result, err := Migrate(context.Background(), MigrateConfig{
 		Org:     "acme",
 		Project: "my-project",
-	}, newTestClientFactory(fc), newFakeProvisioner(), nil, nopScaffoldCommit, nil)
+	}, newTestClientFactory(fc), newFakeProvisioner(), nopScaffoldCommit, nil)
 
 	require.NoError(t, err)
 	assert.Empty(t, result.Migrated)
@@ -705,7 +684,7 @@ repos:
 		Org:        "acme",
 		Project:    "my-project",
 		RepoFilter: []string{"nonexistent"},
-	}, newTestClientFactory(fc), newFakeProvisioner(), nil, nopScaffoldCommit, nopProgress)
+	}, newTestClientFactory(fc), newFakeProvisioner(), nopScaffoldCommit, nopProgress)
 
 	require.NoError(t, err)
 	assert.Empty(t, result.Migrated)
@@ -734,7 +713,7 @@ repos:
 	result, err := Migrate(context.Background(), MigrateConfig{
 		Org:     "acme",
 		Project: "my-project",
-	}, newTestClientFactory(fc), newFakeProvisioner(), nil, nopScaffoldCommit, nopProgress)
+	}, newTestClientFactory(fc), newFakeProvisioner(), nopScaffoldCommit, nopProgress)
 
 	require.NoError(t, err)
 	assert.Len(t, result.Skipped, 1)
@@ -807,7 +786,7 @@ repos:
 	result, err := Migrate(context.Background(), MigrateConfig{
 		Org:     "acme",
 		Project: "my-project",
-	}, newTestClientFactory(fc), prov, nil, capturingScaffoldCommit(&captured), nopProgress)
+	}, newTestClientFactory(fc), prov, capturingScaffoldCommit(&captured), nopProgress)
 
 	require.NoError(t, err)
 	require.Len(t, result.Migrated, 1)
@@ -864,7 +843,7 @@ repos:
 	result, err := Migrate(context.Background(), MigrateConfig{
 		Org:     "acme",
 		Project: "my-project",
-	}, newTestClientFactory(fc), prov, nil, capturingScaffoldCommit(&captured), nopProgress)
+	}, newTestClientFactory(fc), prov, capturingScaffoldCommit(&captured), nopProgress)
 
 	require.NoError(t, err)
 	require.Len(t, result.Migrated, 2)
@@ -882,96 +861,6 @@ repos:
 	assert.Contains(t, webCfg, "triage")
 	assert.Contains(t, webCfg, "coder", "web should use default roles")
 	assert.Contains(t, webCfg, "review")
-}
-
-func TestMigrate_RegistersInMint(t *testing.T) {
-	fc := forge.NewFakeClient()
-	setOrgConfig(fc, "acme", `
-version: "1"
-dispatch:
-  platform: github-actions
-  mode: oidc-mint
-  mint_url: https://mint.example.com
-repos:
-  api:
-    enabled: true
-  web:
-    enabled: true
-`)
-	setWorkflowFile(fc, "acme", "api",
-		"    uses: fullsend-ai/fullsend/.github/workflows/reusable-dispatch.yml@v2.1.0")
-	setWorkflowFile(fc, "acme", "web",
-		"    uses: fullsend-ai/fullsend/.github/workflows/reusable-dispatch.yml@v2.1.0")
-
-	prov := newFakeProvisioner()
-	for _, repo := range []string{"acme/api", "acme/web"} {
-		prov.provisionResults[repo] = "projects/123/locations/global/workloadIdentityPools/inference/providers/prov"
-	}
-
-	mintReg := newFakeMintRegistrar()
-
-	result, err := Migrate(context.Background(), MigrateConfig{
-		Org:     "acme",
-		Project: "my-project",
-	}, newTestClientFactory(fc), prov, mintReg, nopScaffoldCommit, nopProgress)
-
-	require.NoError(t, err)
-	assert.Len(t, result.Migrated, 2)
-
-	// Verify both repos were registered in mint.
-	assert.Len(t, mintReg.calls, 2, "should have registered both repos in mint")
-	assert.Contains(t, mintReg.calls, "acme/api")
-	assert.Contains(t, mintReg.calls, "acme/web")
-}
-
-func TestMigrate_MintRegistrationFailure_StillMigrated(t *testing.T) {
-	fc := forge.NewFakeClient()
-	setOrgConfig(fc, "acme", `
-version: "1"
-dispatch:
-  platform: github-actions
-  mode: oidc-mint
-  mint_url: https://mint.example.com
-repos:
-  api:
-    enabled: true
-  web:
-    enabled: true
-`)
-	setWorkflowFile(fc, "acme", "api",
-		"    uses: fullsend-ai/fullsend/.github/workflows/reusable-dispatch.yml@v2.1.0")
-	setWorkflowFile(fc, "acme", "web",
-		"    uses: fullsend-ai/fullsend/.github/workflows/reusable-dispatch.yml@v2.1.0")
-
-	prov := newFakeProvisioner()
-	for _, repo := range []string{"acme/api", "acme/web"} {
-		prov.provisionResults[repo] = "projects/123/locations/global/workloadIdentityPools/inference/providers/prov"
-	}
-
-	mintReg := newFakeMintRegistrar()
-	mintReg.errs["acme/api"] = fmt.Errorf("mint registration failed")
-
-	result, err := Migrate(context.Background(), MigrateConfig{
-		Org:            "acme",
-		Project:        "my-project",
-		MaxConcurrency: 1,
-	}, newTestClientFactory(fc), prov, mintReg, nopScaffoldCommit, nopProgress)
-
-	require.NoError(t, err)
-	assert.Empty(t, result.Failed, "mint failure should not move repo to failed")
-	assert.Len(t, result.Migrated, 2, "both repos should be migrated")
-	assert.Equal(t, 2, result.Unenrolled, "both repos should be unenrolled")
-
-	// The repo with mint failure should have an error attached.
-	for _, mr := range result.Migrated {
-		if mr.Repo == "api" {
-			require.NotNil(t, mr.Error, "api should have mint error attached")
-			assert.Contains(t, mr.Error.Error(), "mint registration failed")
-		}
-		if mr.Repo == "web" {
-			assert.Nil(t, mr.Error, "web should have no error")
-		}
-	}
 }
 
 func TestMigrate_WarnsOnNonPortableFields(t *testing.T) {
@@ -1010,7 +899,7 @@ repos:
 	_, err := Migrate(context.Background(), MigrateConfig{
 		Org:     "acme",
 		Project: "my-project",
-	}, newTestClientFactory(fc), prov, nil, nopScaffoldCommit, progressFn)
+	}, newTestClientFactory(fc), prov, nopScaffoldCommit, progressFn)
 
 	require.NoError(t, err)
 	assert.Len(t, warnings, 2, "should warn about both non-portable fields")
@@ -1063,7 +952,7 @@ repos:
 	result, err := Migrate(context.Background(), MigrateConfig{
 		Org:     "acme",
 		Project: "my-project",
-	}, newTestClientFactory(fc), prov, nil, capturingScaffoldCommit(&captured), progressFn)
+	}, newTestClientFactory(fc), prov, capturingScaffoldCommit(&captured), progressFn)
 
 	require.NoError(t, err)
 	require.Len(t, result.Migrated, 1)
@@ -1123,7 +1012,7 @@ repos:
 			result, err := Migrate(context.Background(), MigrateConfig{
 				Org:     "acme",
 				Project: "my-project",
-			}, newTestClientFactory(fc), prov, nil, nopScaffoldCommit, nopProgress)
+			}, newTestClientFactory(fc), prov, nopScaffoldCommit, nopProgress)
 
 			require.NoError(t, err)
 			require.Len(t, result.Migrated, 1)
@@ -1137,7 +1026,7 @@ repos:
 	}
 }
 
-func TestMigrate_NilMintRegistrar_SkipsRegistration(t *testing.T) {
+func TestMigrate_NoMintRegistration(t *testing.T) {
 	fc := forge.NewFakeClient()
 	setOrgConfig(fc, "acme", `
 version: "1"
@@ -1155,11 +1044,11 @@ repos:
 	prov := newFakeProvisioner()
 	prov.provisionResults["acme/api"] = "projects/123/locations/global/workloadIdentityPools/inference/providers/prov"
 
-	// Pass nil MintRegistrar — should not panic or fail.
+	// Migrate no longer does mint registration (removed in #6222).
 	result, err := Migrate(context.Background(), MigrateConfig{
 		Org:     "acme",
 		Project: "my-project",
-	}, newTestClientFactory(fc), prov, nil, nopScaffoldCommit, nopProgress)
+	}, newTestClientFactory(fc), prov, nopScaffoldCommit, nopProgress)
 
 	require.NoError(t, err)
 	assert.Len(t, result.Migrated, 1)

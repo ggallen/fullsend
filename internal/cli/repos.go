@@ -49,9 +49,8 @@ type reposMigrateConfig struct {
 	manifest    string
 
 	// Test overrides
-	testClient        forge.Client
-	testProvisioner   repos.InferenceProvisioner
-	testMintRegistrar repos.MintRegistrar
+	testClient      forge.Client
+	testProvisioner repos.InferenceProvisioner
 }
 
 func newReposMigrateCmd() *cobra.Command {
@@ -65,8 +64,7 @@ func newReposMigrateCmd() *cobra.Command {
 For each repo enrolled in the org's per-org config (.fullsend config repo):
   1. Check inference WIF status; provision if needed
   2. Install per-repo (scaffold, variables, secrets) with config carried over
-  3. Register per-repo WIF in the mint's PER_REPO_WIF_REPOS
-  4. Unenroll from per-org config
+  3. Unenroll from per-org config
 
 Generates a repos.yaml manifest reflecting the migrated state.
 
@@ -127,13 +125,6 @@ func runReposMigrate(cmd *cobra.Command, org string, cfg *reposMigrateConfig) er
 		provisioner = newGCPInferenceProvisioner(cfg.project)
 	}
 
-	var mintReg repos.MintRegistrar
-	if cfg.testMintRegistrar != nil {
-		mintReg = cfg.testMintRegistrar
-	} else {
-		mintReg = newGCPMintRegistrar(cfg.project)
-	}
-
 	upstreamRef, upstreamTag := resolveUpstreamRef()
 
 	scaffoldCommitFn := func(ctx context.Context, owner, repo string, files []forge.TreeFile, direct bool) error {
@@ -180,7 +171,7 @@ func runReposMigrate(cmd *cobra.Command, org string, cfg *reposMigrateConfig) er
 		CLIVersion:     version,
 	}
 
-	result, err := repos.Migrate(ctx, migrateCfg, clients, provisioner, mintReg, scaffoldCommitFn, progressFn)
+	result, err := repos.Migrate(ctx, migrateCfg, clients, provisioner, scaffoldCommitFn, progressFn)
 	if err != nil {
 		return err
 	}
@@ -450,9 +441,9 @@ GCP infrastructure (WIF, mint) must be provisioned separately via
 	cmd.Flags().BoolVar(&opts.direct, "direct", false, "push scaffold directly to default branch (skip PR)")
 	cmd.Flags().BoolVar(&opts.force, "force", false, "allow scaffold ref downgrades")
 	cmd.Flags().StringVar(&opts.forge, "forge", "", "forge type for repos not yet in the manifest (github or gitlab)")
-	cmd.Flags().StringVar(&opts.inferenceProject, "inference-project", "", "GCP project ID for inference (written as FULLSEND_GCP_PROJECT_ID secret)")
-	cmd.Flags().StringVar(&opts.inferenceProjectNumber, "inference-project-number", "", "numeric GCP project number for WIF provider computation")
-	cmd.Flags().StringVar(&opts.inferenceRegion, "inference-region", "", "GCP region for inference (install-time only, not stored in manifest)")
+	cmd.Flags().StringVar(&opts.inferenceProject, "inference-project", "", "GCP project ID for inference; requires all three --inference-* flags")
+	cmd.Flags().StringVar(&opts.inferenceProjectNumber, "inference-project-number", "", "numeric GCP project number; requires all three --inference-* flags")
+	cmd.Flags().StringVar(&opts.inferenceRegion, "inference-region", "", "GCP region for inference; requires all three --inference-* flags")
 	cmd.Flags().StringVar(&opts.fullsendRef, "fullsend-ref", "", "per-repo fullsend workflow ref override")
 	cmd.Flags().StringVar(&opts.mintURL, "mint-url", "", "per-repo mint URL override")
 	cmd.Flags().StringSliceVar(&opts.allowedRemoteResources, "allowed-remote-resources", nil, "per-repo allowed remote resources override")
@@ -1281,23 +1272,4 @@ func (p *gcpInferenceProvisioner) Provision(ctx context.Context, owner, repo str
 		return "", fmt.Errorf("provisioning WIF: %w", err)
 	}
 	return wifProvider, nil
-}
-
-// gcpMintRegistrar implements repos.MintRegistrar by calling
-// the GCF provisioner's RegisterPerRepoWIF.
-type gcpMintRegistrar struct {
-	provisioner *gcf.Provisioner
-}
-
-func newGCPMintRegistrar(project string) *gcpMintRegistrar {
-	gcpClient := gcf.NewLiveGCFClient(project)
-	return &gcpMintRegistrar{
-		provisioner: gcf.NewProvisioner(gcf.Config{
-			ProjectID: project,
-		}, gcpClient),
-	}
-}
-
-func (m *gcpMintRegistrar) RegisterPerRepoWIF(ctx context.Context, repo string) error {
-	return m.provisioner.RegisterPerRepoWIF(ctx, repo)
 }

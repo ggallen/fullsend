@@ -3,6 +3,7 @@ package repos
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 
@@ -80,8 +81,8 @@ func TestInstall_FreshInstall_Direct(t *testing.T) {
 	}
 
 	// Verify repository variables were set.
-	if len(fc.Variables) != 3 {
-		t.Errorf("expected 3 variables, got %d", len(fc.Variables))
+	if len(fc.Variables) != 4 {
+		t.Errorf("expected 4 variables, got %d", len(fc.Variables))
 	}
 	varMap := make(map[string]string)
 	for _, v := range fc.Variables {
@@ -95,6 +96,9 @@ func TestInstall_FreshInstall_Direct(t *testing.T) {
 	}
 	if varMap[forge.PerRepoGuardVar] != "true" {
 		t.Errorf("%s = %q, want %q", forge.PerRepoGuardVar, varMap[forge.PerRepoGuardVar], "true")
+	}
+	if varMap["FULLSEND_CREDENTIAL_MODE"] != CredModeWIF {
+		t.Errorf("FULLSEND_CREDENTIAL_MODE = %q, want %q", varMap["FULLSEND_CREDENTIAL_MODE"], CredModeWIF)
 	}
 
 	// Verify repository secrets were set.
@@ -268,6 +272,8 @@ func TestInstall_PartialInstall_MissingSecrets(t *testing.T) {
 	fc.VariableValues["acme/widgets/"+forge.PerRepoGuardVar] = "true"
 	fc.VariableValues["acme/widgets/FULLSEND_MINT_URL"] = "https://mint.example.com"
 	fc.VariableValues["acme/widgets/FULLSEND_GCP_REGION"] = "us-central1"
+	fc.VariableValues["acme/widgets/FULLSEND_CREDENTIAL_MODE"] = CredModeWIF
+	fc.VariablesExist["acme/widgets/FULLSEND_CREDENTIAL_MODE"] = true
 	fc.FileContents["acme/widgets/.github/workflows/fullsend.yaml"] = []byte("name: fullsend")
 
 	cfg := baseCfg()
@@ -704,6 +710,8 @@ func TestCheckInstallComponents_SecretCheckError(t *testing.T) {
 	fc.FileContents["acme/widgets/.github/workflows/fullsend.yaml"] = []byte("name: fullsend")
 	fc.VariableValues["acme/widgets/FULLSEND_MINT_URL"] = "https://mint.example.com"
 	fc.VariableValues["acme/widgets/FULLSEND_GCP_REGION"] = "us-central1"
+	fc.VariableValues["acme/widgets/FULLSEND_CREDENTIAL_MODE"] = CredModeWIF
+	fc.VariablesExist["acme/widgets/FULLSEND_CREDENTIAL_MODE"] = true
 	fc.Errors["RepoSecretExists"] = fmt.Errorf("API error")
 
 	installed, err := checkInstallComponents(context.Background(), fc, "acme", "widgets", ForgeGitHub, defaultForgeConfig)
@@ -747,10 +755,10 @@ func TestCheckInstallComponents_GitLabWIF_FullyInstalled(t *testing.T) {
 	}
 }
 
-func TestCheckInstallComponents_GitLabVariable_NoSecretsNeeded(t *testing.T) {
+func TestCheckInstallComponents_GitLabToken_NoSecretsNeeded(t *testing.T) {
 	fc := forge.NewFakeClient()
 	fc.FileContents["acme/api/.gitlab/ci/fullsend-dispatch.yml"] = []byte("include:")
-	fc.VariableValues["acme/api/FULLSEND_CREDENTIAL_MODE"] = "variable"
+	fc.VariableValues["acme/api/FULLSEND_CREDENTIAL_MODE"] = "token"
 	fc.VariableValues["acme/api/FULLSEND_FORGE"] = "gitlab"
 
 	installed, err := checkInstallComponents(context.Background(), fc, "acme", "api", ForgeGitLab, GitLabForgeConfig())
@@ -758,7 +766,54 @@ func TestCheckInstallComponents_GitLabVariable_NoSecretsNeeded(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if !installed {
-		t.Error("expected installed=true for variable mode without secrets")
+		t.Error("expected installed=true for token mode without secrets")
+	}
+}
+
+func TestCheckInstallComponents_GitHubOIDC_NoSecretsNeeded(t *testing.T) {
+	fc := forge.NewFakeClient()
+	fc.FileContents["acme/api/.github/workflows/fullsend.yml"] = []byte(shimWorkflow)
+	fc.VariableValues["acme/api/FULLSEND_MINT_URL"] = "https://mint.example.com"
+	fc.VariableValues["acme/api/FULLSEND_CREDENTIAL_MODE"] = "oidc"
+
+	installed, err := checkInstallComponents(context.Background(), fc, "acme", "api", ForgeGitHub, defaultForgeConfig)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !installed {
+		t.Error("expected installed=true for GitHub OIDC mode without WIF secrets")
+	}
+}
+
+func TestCheckInstallComponents_GitHubWIF_NoCredModeVar_DefaultsWIF(t *testing.T) {
+	fc := forge.NewFakeClient()
+	fc.FileContents["acme/api/.github/workflows/fullsend.yml"] = []byte(shimWorkflow)
+	fc.VariableValues["acme/api/FULLSEND_MINT_URL"] = "https://mint.example.com"
+	// No FULLSEND_CREDENTIAL_MODE variable — simulates pre-existing WIF repo.
+
+	installed, err := checkInstallComponents(context.Background(), fc, "acme", "api", ForgeGitHub, defaultForgeConfig)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if installed {
+		t.Error("expected installed=false: pre-existing WIF repo without secrets should not be reported as fully installed")
+	}
+}
+
+func TestCheckInstallComponents_GitHubWIF_NoCredModeVar_WithSecrets(t *testing.T) {
+	fc := forge.NewFakeClient()
+	fc.FileContents["acme/api/.github/workflows/fullsend.yml"] = []byte(shimWorkflow)
+	fc.VariableValues["acme/api/FULLSEND_MINT_URL"] = "https://mint.example.com"
+	fc.Secrets["acme/api/FULLSEND_GCP_PROJECT_ID"] = true
+	fc.Secrets["acme/api/FULLSEND_GCP_WIF_PROVIDER"] = true
+	// No FULLSEND_CREDENTIAL_MODE variable — simulates pre-existing WIF repo with secrets.
+
+	installed, err := checkInstallComponents(context.Background(), fc, "acme", "api", ForgeGitHub, defaultForgeConfig)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !installed {
+		t.Error("expected installed=true: pre-existing WIF repo with all secrets should be fully installed")
 	}
 }
 
@@ -766,7 +821,7 @@ func TestInstallVarsForForge_GitLab(t *testing.T) {
 	cfg := InstallConfig{
 		Forge: ForgeGitLab,
 	}
-	vars, err := installVarsForForge(cfg, "", "")
+	vars, err := installVarsForForge(cfg, "")
 	if err != nil {
 		t.Fatalf("installVarsForForge(GitLab) error = %v", err)
 	}
@@ -783,8 +838,8 @@ func TestInstallVarsForForge_GitLab(t *testing.T) {
 			t.Errorf("missing required GitLab variable %q", k)
 		}
 	}
-	if vars["FULLSEND_CREDENTIAL_MODE"] != "variable" {
-		t.Errorf("FULLSEND_CREDENTIAL_MODE = %q, want %q", vars["FULLSEND_CREDENTIAL_MODE"], "variable")
+	if vars["FULLSEND_CREDENTIAL_MODE"] != "token" {
+		t.Errorf("FULLSEND_CREDENTIAL_MODE = %q, want %q", vars["FULLSEND_CREDENTIAL_MODE"], "token")
 	}
 	if vars["FULLSEND_FORGE"] != "gitlab" {
 		t.Errorf("FULLSEND_FORGE = %q, want %q", vars["FULLSEND_FORGE"], "gitlab")
@@ -801,7 +856,7 @@ func TestInstallVarsForForge_GitHub_OmitsEmptyRegion(t *testing.T) {
 	cfg := InstallConfig{
 		Forge: ForgeGitHub,
 	}
-	vars, err := installVarsForForge(cfg, "https://mint.example.com", "")
+	vars, err := installVarsForForge(cfg, "https://mint.example.com")
 	if err != nil {
 		t.Fatalf("installVarsForForge(GitHub) error = %v", err)
 	}
@@ -815,7 +870,7 @@ func TestInstallVarsForForge_GitHub_IncludesRegion(t *testing.T) {
 		Forge:           ForgeGitHub,
 		InferenceRegion: "us-central1",
 	}
-	vars, err := installVarsForForge(cfg, "https://mint.example.com", "")
+	vars, err := installVarsForForge(cfg, "https://mint.example.com")
 	if err != nil {
 		t.Fatalf("installVarsForForge(GitHub) error = %v", err)
 	}
@@ -826,7 +881,7 @@ func TestInstallVarsForForge_GitHub_IncludesRegion(t *testing.T) {
 
 func TestInstallVarsForForge_UnsupportedForge(t *testing.T) {
 	cfg := InstallConfig{Forge: "bitbucket"}
-	_, err := installVarsForForge(cfg, "", "")
+	_, err := installVarsForForge(cfg, "")
 	if err == nil {
 		t.Fatal("expected error for unsupported forge")
 	}
@@ -875,13 +930,17 @@ func TestRequiredVarsForForge(t *testing.T) {
 }
 
 func TestRequiredSecretsForForge(t *testing.T) {
-	ghSecrets := requiredSecretsForForge(ForgeGitHub, "")
-	if len(ghSecrets) == 0 {
-		t.Fatal("expected non-empty required secrets for GitHub")
+	ghSecretsEmpty := requiredSecretsForForge(ForgeGitHub, "")
+	if ghSecretsEmpty != nil {
+		t.Errorf("expected nil required secrets for GitHub with empty mode, got %v", ghSecretsEmpty)
 	}
-	glSecretsVar := requiredSecretsForForge(ForgeGitLab, "variable")
-	if glSecretsVar != nil {
-		t.Errorf("expected nil required secrets for GitLab variable mode, got %v", glSecretsVar)
+	ghSecretsWIF := requiredSecretsForForge(ForgeGitHub, CredModeWIF)
+	if len(ghSecretsWIF) == 0 {
+		t.Fatal("expected non-empty required secrets for GitHub WIF mode")
+	}
+	glSecretsToken := requiredSecretsForForge(ForgeGitLab, "token")
+	if glSecretsToken != nil {
+		t.Errorf("expected nil required secrets for GitLab token mode, got %v", glSecretsToken)
 	}
 	glSecretsWIF := requiredSecretsForForge(ForgeGitLab, "wif")
 	if len(glSecretsWIF) == 0 {
@@ -959,8 +1018,8 @@ func TestInstall_FreshInstall_GitLab(t *testing.T) {
 	for _, v := range fc.Variables {
 		varMap[v.Name] = v.Value
 	}
-	if varMap["FULLSEND_CREDENTIAL_MODE"] != "variable" {
-		t.Errorf("FULLSEND_CREDENTIAL_MODE = %q, want %q", varMap["FULLSEND_CREDENTIAL_MODE"], "variable")
+	if varMap["FULLSEND_CREDENTIAL_MODE"] != "token" {
+		t.Errorf("FULLSEND_CREDENTIAL_MODE = %q, want %q", varMap["FULLSEND_CREDENTIAL_MODE"], "token")
 	}
 	if varMap["FULLSEND_FORGE"] != "gitlab" {
 		t.Errorf("FULLSEND_FORGE = %q, want %q", varMap["FULLSEND_FORGE"], "gitlab")
@@ -998,7 +1057,7 @@ func TestInstall_GitLab_AlreadyInstalled(t *testing.T) {
 	fc := newFakeClientWithRepo()
 	fullName := "acme/widgets"
 	fc.VariableValues[fullName+"/"+forge.PerRepoGuardVar] = "true"
-	fc.VariableValues[fullName+"/FULLSEND_CREDENTIAL_MODE"] = "variable"
+	fc.VariableValues[fullName+"/FULLSEND_CREDENTIAL_MODE"] = "token"
 	fc.VariableValues[fullName+"/FULLSEND_FORGE"] = "gitlab"
 	fc.FileContents[fullName+"/.gitlab/ci/fullsend-dispatch.yml"] = []byte("include:")
 
@@ -1054,7 +1113,7 @@ func TestInstallVarsForForge_GitLab_WithInference(t *testing.T) {
 		InferenceRegion:  "us-central1",
 		WIFProvider:      fakeWIFProvider,
 	}
-	vars, err := installVarsForForge(cfg, "", "")
+	vars, err := installVarsForForge(cfg, "")
 	if err != nil {
 		t.Fatalf("installVarsForForge(GitLab, inference) error = %v", err)
 	}
@@ -1100,12 +1159,12 @@ func TestInstallVarsForForge_GitLab_WithoutInference(t *testing.T) {
 	cfg := InstallConfig{
 		Forge: ForgeGitLab,
 	}
-	vars, err := installVarsForForge(cfg, "", "")
+	vars, err := installVarsForForge(cfg, "")
 	if err != nil {
 		t.Fatalf("installVarsForForge(GitLab, no inference) error = %v", err)
 	}
-	if vars["FULLSEND_CREDENTIAL_MODE"] != "variable" {
-		t.Errorf("FULLSEND_CREDENTIAL_MODE = %q, want %q", vars["FULLSEND_CREDENTIAL_MODE"], "variable")
+	if vars["FULLSEND_CREDENTIAL_MODE"] != "token" {
+		t.Errorf("FULLSEND_CREDENTIAL_MODE = %q, want %q", vars["FULLSEND_CREDENTIAL_MODE"], "token")
 	}
 	if _, ok := vars["FULLSEND_GCP_REGION"]; ok {
 		t.Error("FULLSEND_GCP_REGION should not be set without inference")
@@ -1120,7 +1179,7 @@ func TestInstallVarsForForge_GitLab_DiscoveredCredMode_PreservesWIF(t *testing.T
 		Forge:              ForgeGitLab,
 		DiscoveredCredMode: "wif",
 	}
-	vars, err := installVarsForForge(cfg, "", "")
+	vars, err := installVarsForForge(cfg, "")
 	if err != nil {
 		t.Fatalf("installVarsForForge(GitLab, DiscoveredCredMode) error = %v", err)
 	}
@@ -1129,17 +1188,17 @@ func TestInstallVarsForForge_GitLab_DiscoveredCredMode_PreservesWIF(t *testing.T
 	}
 }
 
-func TestInstallVarsForForge_GitLab_DiscoveredCredMode_InvalidFallsBackToVariable(t *testing.T) {
+func TestInstallVarsForForge_GitLab_DiscoveredCredMode_InvalidFallsBackToToken(t *testing.T) {
 	cfg := InstallConfig{
 		Forge:              ForgeGitLab,
 		DiscoveredCredMode: "corrupted-value",
 	}
-	vars, err := installVarsForForge(cfg, "", "")
+	vars, err := installVarsForForge(cfg, "")
 	if err != nil {
 		t.Fatalf("installVarsForForge(GitLab, invalid DiscoveredCredMode) error = %v", err)
 	}
-	if vars["FULLSEND_CREDENTIAL_MODE"] != "variable" {
-		t.Errorf("FULLSEND_CREDENTIAL_MODE = %q, want %q (invalid discovered mode should fall back to variable)", vars["FULLSEND_CREDENTIAL_MODE"], "variable")
+	if vars["FULLSEND_CREDENTIAL_MODE"] != "token" {
+		t.Errorf("FULLSEND_CREDENTIAL_MODE = %q, want %q (invalid discovered mode should fall back to token)", vars["FULLSEND_CREDENTIAL_MODE"], "token")
 	}
 }
 
@@ -1147,9 +1206,9 @@ func TestInstallVarsForForge_GitLab_InferenceProjectOverridesDiscovered(t *testi
 	cfg := InstallConfig{
 		Forge:              ForgeGitLab,
 		InferenceProject:   "my-project",
-		DiscoveredCredMode: "variable",
+		DiscoveredCredMode: "token",
 	}
-	vars, err := installVarsForForge(cfg, "", "")
+	vars, err := installVarsForForge(cfg, "")
 	if err != nil {
 		t.Fatalf("installVarsForForge(GitLab, InferenceProject+DiscoveredCredMode) error = %v", err)
 	}
@@ -1294,5 +1353,146 @@ func TestBuildScaffoldFiles_GitLab(t *testing.T) {
 		if !paths[expected] {
 			t.Errorf("missing expected scaffold file %q", expected)
 		}
+	}
+}
+
+func TestInstall_GitHub_OIDCMode_SkipsWIFSecrets(t *testing.T) {
+	fc := newFakeClientWithRepo()
+	cfg := baseCfg()
+	cfg.CredentialMode = CredModeOIDC
+	cfg.WIFProvider = "" // not needed in OIDC mode
+	cfg.InferenceProject = ""
+
+	sc := &fakeScaffoldCommit{}
+	result, err := Install(context.Background(), cfg, fc, sc.fn(), noopProgress)
+	if err != nil {
+		t.Fatalf("Install(GitHub, OIDC) returned error: %v", err)
+	}
+	if !result.Success {
+		t.Error("expected Success=true")
+	}
+	if !sc.called {
+		t.Error("expected scaffold commit to be called")
+	}
+
+	// Verify no secrets were written (OIDC mode doesn't need WIF).
+	if len(fc.CreatedSecrets) != 0 {
+		t.Errorf("expected 0 secrets for OIDC mode, got %d", len(fc.CreatedSecrets))
+	}
+
+	// Verify FULLSEND_CREDENTIAL_MODE is set to oidc.
+	varMap := make(map[string]string)
+	for _, v := range fc.Variables {
+		varMap[v.Name] = v.Value
+	}
+	if varMap["FULLSEND_CREDENTIAL_MODE"] != "oidc" {
+		t.Errorf("FULLSEND_CREDENTIAL_MODE = %q, want %q", varMap["FULLSEND_CREDENTIAL_MODE"], "oidc")
+	}
+	if varMap["FULLSEND_MINT_URL"] != "https://mint.example.com" {
+		t.Errorf("FULLSEND_MINT_URL = %q, want %q", varMap["FULLSEND_MINT_URL"], "https://mint.example.com")
+	}
+}
+
+func TestInstall_GitHub_WIFMode_RequiresWIFProvider(t *testing.T) {
+	fc := newFakeClientWithRepo()
+	cfg := baseCfg()
+	cfg.CredentialMode = CredModeWIF
+	cfg.WIFProvider = ""
+
+	sc := &fakeScaffoldCommit{}
+	_, err := Install(context.Background(), cfg, fc, sc.fn(), noopProgress)
+	if err == nil {
+		t.Fatal("expected error when WIF provider is empty in WIF mode")
+	}
+}
+
+func TestInstallSecretsForForge_GitHub_OIDCMode_NoSecrets(t *testing.T) {
+	cfg := InstallConfig{
+		Forge:          ForgeGitHub,
+		CredentialMode: CredModeOIDC,
+	}
+	secrets := installSecretsForForge(cfg, "")
+	if secrets != nil {
+		t.Errorf("expected nil secrets for GitHub OIDC mode, got %v", secrets)
+	}
+}
+
+func TestRequiredSecretsForForge_GitHub_OIDCMode(t *testing.T) {
+	secrets := requiredSecretsForForge(ForgeGitHub, CredModeOIDC)
+	if secrets != nil {
+		t.Errorf("expected nil required secrets for GitHub OIDC mode, got %v", secrets)
+	}
+}
+
+func TestRequiredSecretsForForge_GitHub_WIFMode(t *testing.T) {
+	secrets := requiredSecretsForForge(ForgeGitHub, CredModeWIF)
+	if len(secrets) == 0 {
+		t.Fatal("expected non-empty required secrets for GitHub WIF mode")
+	}
+}
+
+func TestRequiredSecretsForForge_GitHub_EmptyMode_NoSecrets(t *testing.T) {
+	secrets := requiredSecretsForForge(ForgeGitHub, "")
+	if secrets != nil {
+		t.Errorf("expected nil required secrets for GitHub with empty credential mode, got %v", secrets)
+	}
+}
+
+func TestResolveCredentialMode(t *testing.T) {
+	tests := []struct {
+		name             string
+		forge            string
+		mode             string
+		inferenceProject string
+		discoveredMode   string
+		want             string
+	}{
+		{"explicit wif", ForgeGitHub, CredModeWIF, "", "", CredModeWIF},
+		{"explicit oidc", ForgeGitHub, CredModeOIDC, "", "", CredModeOIDC},
+		{"explicit token", ForgeGitLab, CredModeToken, "", "", CredModeToken},
+		{"github empty defaults to oidc", ForgeGitHub, "", "", "", CredModeOIDC},
+		{"github with inference defaults to wif", ForgeGitHub, "", "proj", "", CredModeWIF},
+		{"github discovered wif", ForgeGitHub, "", "", CredModeWIF, CredModeWIF},
+		{"github discovered oidc", ForgeGitHub, "", "", CredModeOIDC, CredModeOIDC},
+		{"gitlab empty defaults to token", ForgeGitLab, "", "", "", CredModeToken},
+		{"gitlab with inference defaults to wif", ForgeGitLab, "", "proj", "", CredModeWIF},
+		{"gitlab discovered wif", ForgeGitLab, "", "", CredModeWIF, CredModeWIF},
+		{"gitlab discovered token", ForgeGitLab, "", "", CredModeToken, CredModeToken},
+		{"gitlab invalid discovered defaults to token", ForgeGitLab, "", "", "invalid", CredModeToken},
+		{"gitlab discovered variable normalizes to token", ForgeGitLab, "", "", "variable", CredModeToken},
+		{"gitlab inference overrides discovered", ForgeGitLab, "", "proj", CredModeToken, CredModeWIF},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := resolveCredentialMode(tt.forge, tt.mode, tt.inferenceProject, tt.discoveredMode)
+			if got != tt.want {
+				t.Errorf("resolveCredentialMode(%q, %q, %q, %q) = %q, want %q",
+					tt.forge, tt.mode, tt.inferenceProject, tt.discoveredMode, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestInstall_InvalidCredentialMode(t *testing.T) {
+	fc := forge.NewFakeClient()
+	fc.Repos = append(fc.Repos, forge.Repository{
+		FullName:      "acme/api",
+		Name:          "api",
+		DefaultBranch: "main",
+	})
+
+	cfg := InstallConfig{
+		Owner:          "acme",
+		Repo:           "api",
+		Forge:          ForgeGitHub,
+		CredentialMode: "token",
+		SkipGuardCheck: true,
+	}
+	_, err := Install(context.Background(), cfg, fc, nil, nil)
+	if err == nil {
+		t.Fatal("expected error for invalid credential mode")
+	}
+	if !strings.Contains(err.Error(), "invalid credential mode") {
+		t.Errorf("expected 'invalid credential mode' error, got: %v", err)
 	}
 }

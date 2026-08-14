@@ -277,7 +277,9 @@ func TestGitLabAgentTemplateCredentialValidation(t *testing.T) {
 	assert.Contains(t, s, "CI_DEBUG_TRACE")
 	assert.Contains(t, s, "FULLSEND_CREDENTIAL_MODE")
 	assert.Contains(t, s, "FULLSEND_FORGE_TOKEN is not set")
-	assert.Contains(t, s, "'wif' or 'variable'")
+	assert.Contains(t, s, "'wif' or 'token'")
+	// Backward compat: legacy "variable" value accepted alongside "token"
+	assert.Contains(t, s, `!= "variable"`)
 	// OIDC token file must NOT be deleted before gcloud secrets
 	assert.NotContains(t, s, "trap - EXIT")
 }

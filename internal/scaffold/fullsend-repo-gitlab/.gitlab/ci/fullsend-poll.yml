@@ -55,11 +55,11 @@ spec:
         export FULLSEND_FORGE_TOKEN=$(gcloud secrets versions access latest \
           --secret="${FULLSEND_BOT_TOKEN_SECRET}" \
           --project="${FULLSEND_GCP_PROJECT_ID}")
-      elif [ "${FULLSEND_CREDENTIAL_MODE:-}" != "variable" ]; then
-        echo "ERROR: FULLSEND_CREDENTIAL_MODE must be 'wif' or 'variable', got '${FULLSEND_CREDENTIAL_MODE:-}'"
+      elif [ "${FULLSEND_CREDENTIAL_MODE:-}" != "token" ] && [ "${FULLSEND_CREDENTIAL_MODE:-}" != "variable" ]; then
+        echo "ERROR: FULLSEND_CREDENTIAL_MODE must be 'wif' or 'token', got '${FULLSEND_CREDENTIAL_MODE:-}'"
         exit 1
       fi
-      # In variable mode, FULLSEND_FORGE_TOKEN is already set from the
+      # In token mode, FULLSEND_FORGE_TOKEN is already set from the
       # protected CI/CD variable — no retrieval step needed.
 
       if [ -z "${FULLSEND_FORGE_TOKEN:-}" ]; then

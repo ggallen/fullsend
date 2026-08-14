@@ -38,7 +38,7 @@ fullsend repos install -f repos.yaml "$OWNER/$REPO" \
 
 | Key | Storage Type | Description | Example value |
 |-----|-------------|-------------|---------------|
-| `FULLSEND_CREDENTIAL_MODE` | CI/CD variable | Credential retrieval mode | `wif` or `variable` |
+| `FULLSEND_CREDENTIAL_MODE` | CI/CD variable | Credential retrieval mode | `wif` or `token` |
 | `FULLSEND_GCP_REGION` | CI/CD variable | GCP region for Agent Platform inference | `us-central1` |
 | `FULLSEND_SA` | CI/CD variable | Service account email for WIF impersonation | `fullsend-mint@project.iam.gserviceaccount.com` |
 | `FULLSEND_WIF_PROVIDER` | CI/CD variable | Full WIF provider resource name (WIF mode only) | `projects/123456789/locations/global/...` |

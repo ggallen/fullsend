@@ -65,8 +65,8 @@ func TestUninstall_InstalledRepo(t *testing.T) {
 	if !r.WorkflowDeleted {
 		t.Error("WorkflowDeleted = false, want true")
 	}
-	if r.VarsDeleted != 3 {
-		t.Errorf("VarsDeleted = %d, want 3", r.VarsDeleted)
+	if r.VarsDeleted != 4 {
+		t.Errorf("VarsDeleted = %d, want 4", r.VarsDeleted)
 	}
 	if r.SecretsDeleted != 2 {
 		t.Errorf("SecretsDeleted = %d, want 2", r.SecretsDeleted)
@@ -75,8 +75,8 @@ func TestUninstall_InstalledRepo(t *testing.T) {
 	if len(client.DeletedFiles) == 0 {
 		t.Error("no files were deleted")
 	}
-	if len(client.DeletedVariables) != 3 {
-		t.Errorf("deleted %d variables, want 3", len(client.DeletedVariables))
+	if len(client.DeletedVariables) != 4 {
+		t.Errorf("deleted %d variables, want 4", len(client.DeletedVariables))
 	}
 	if len(client.DeletedSecrets) != 2 {
 		t.Errorf("deleted %d secrets, want 2", len(client.DeletedSecrets))
@@ -463,6 +463,51 @@ func TestUninstall_GitLabConfigYaml_Deleted(t *testing.T) {
 	}
 	if !found {
 		t.Error(".fullsend/config.yaml was not in scaffold paths for GitLab uninstall")
+	}
+}
+
+func TestUninstall_OIDCMode_SkipsWIFSecrets(t *testing.T) {
+	client := newInstalledFakeClient("acme/api")
+	client.VariableValues["acme/api/FULLSEND_CREDENTIAL_MODE"] = CredModeOIDC
+	client.VariablesExist["acme/api/FULLSEND_CREDENTIAL_MODE"] = true
+
+	results, err := Uninstall(context.Background(), UninstallConfig{
+		Manifest:       testManifest("acme/api"),
+		Repos:          []string{"acme/api"},
+		MaxConcurrency: 4,
+	}, newTestClientFactory(client), nil)
+
+	if err != nil {
+		t.Fatalf("Uninstall() error = %v", err)
+	}
+	r := results[0]
+	if !r.Success {
+		t.Errorf("Success = false, want true; Error = %v", r.Error)
+	}
+	if r.SecretsDeleted != 0 {
+		t.Errorf("SecretsDeleted = %d, want 0 (OIDC mode has no WIF secrets)", r.SecretsDeleted)
+	}
+}
+
+func TestUninstall_TokenMode_SkipsWIFSecrets(t *testing.T) {
+	client := newInstalledFakeGitLabClient("acme/api")
+	client.VariableValues["acme/api/FULLSEND_CREDENTIAL_MODE"] = CredModeToken
+
+	results, err := Uninstall(context.Background(), UninstallConfig{
+		Manifest:       testGitLabManifest("acme/api"),
+		Repos:          []string{"acme/api"},
+		MaxConcurrency: 4,
+	}, newTestClientFactory(client), nil)
+
+	if err != nil {
+		t.Fatalf("Uninstall() error = %v", err)
+	}
+	r := results[0]
+	if !r.Success {
+		t.Errorf("Success = false, want true; Error = %v", r.Error)
+	}
+	if r.SecretsDeleted != 0 {
+		t.Errorf("SecretsDeleted = %d, want 0 (token mode has no WIF secrets)", r.SecretsDeleted)
 	}
 }
 

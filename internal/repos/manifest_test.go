@@ -1924,6 +1924,121 @@ func TestValidate_GitLabFullsendRefValid(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestValidate_CredentialMode_ValidForGitHub(t *testing.T) {
+	for _, mode := range []string{"wif", "oidc"} {
+		m := Manifest{
+			Version: 1,
+			Forge: ForgeSection{GitHub: GitHubForgeInfra{
+				MintURL:        "https://mint.example.com",
+				CredentialMode: mode,
+			}},
+			Defaults: DefaultsConfig{Forge: "github"},
+			Repos:    []RepoEntry{{Repo: "acme/api"}},
+		}
+		err := m.Validate()
+		require.NoError(t, err, "mode %q should be valid for GitHub", mode)
+	}
+}
+
+func TestValidate_CredentialMode_InvalidForGitHub(t *testing.T) {
+	m := Manifest{
+		Version: 1,
+		Forge: ForgeSection{GitHub: GitHubForgeInfra{
+			MintURL:        "https://mint.example.com",
+			CredentialMode: "token",
+		}},
+		Defaults: DefaultsConfig{Forge: "github"},
+		Repos:    []RepoEntry{{Repo: "acme/api"}},
+	}
+	err := m.Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "credential_mode")
+}
+
+func TestValidate_CredentialMode_ValidForGitLab(t *testing.T) {
+	for _, mode := range []string{"wif", "token"} {
+		m := Manifest{
+			Version: 1,
+			Forge: ForgeSection{GitLab: GitLabForgeInfra{
+				URL:            "https://gitlab.example.com",
+				CredentialMode: mode,
+			}},
+			Defaults: DefaultsConfig{Forge: "gitlab"},
+			Repos:    []RepoEntry{{Repo: "acme/api"}},
+		}
+		err := m.Validate()
+		require.NoError(t, err, "mode %q should be valid for GitLab", mode)
+	}
+}
+
+func TestValidate_CredentialMode_InvalidForGitLab(t *testing.T) {
+	m := Manifest{
+		Version: 1,
+		Forge: ForgeSection{GitLab: GitLabForgeInfra{
+			URL:            "https://gitlab.example.com",
+			CredentialMode: "oidc",
+		}},
+		Defaults: DefaultsConfig{Forge: "gitlab"},
+		Repos:    []RepoEntry{{Repo: "acme/api"}},
+	}
+	err := m.Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "credential_mode")
+}
+
+func TestValidate_PerRepoCredentialMode_Invalid(t *testing.T) {
+	m := Manifest{
+		Version: 1,
+		Forge: ForgeSection{GitHub: GitHubForgeInfra{
+			MintURL: "https://mint.example.com",
+		}},
+		Defaults: DefaultsConfig{Forge: "github"},
+		Repos: []RepoEntry{{
+			Repo:           "acme/api",
+			CredentialMode: NullableString{Set: true, Value: "token"},
+		}},
+	}
+	err := m.Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "credential_mode")
+	assert.Contains(t, err.Error(), "not valid for forge")
+}
+
+func TestResolveConfig_CredentialMode(t *testing.T) {
+	m := Manifest{
+		Version: 1,
+		Forge: ForgeSection{GitHub: GitHubForgeInfra{
+			MintURL:        "https://mint.example.com",
+			CredentialMode: "oidc",
+		}},
+		Defaults: DefaultsConfig{Forge: "github"},
+		Repos: []RepoEntry{
+			{Repo: "acme/api"},
+			{Repo: "acme/special", CredentialMode: NullableString{Set: true, Value: "wif"}},
+		},
+	}
+	err := m.Validate()
+	require.NoError(t, err)
+
+	cfg1, _ := m.ResolveConfig("acme", "api")
+	assert.Equal(t, "oidc", cfg1.CredentialMode)
+
+	cfg2, _ := m.ResolveConfig("acme", "special")
+	assert.Equal(t, "wif", cfg2.CredentialMode)
+}
+
+func TestIsValidCredentialMode(t *testing.T) {
+	assert.True(t, IsValidCredentialMode("github", "wif"))
+	assert.True(t, IsValidCredentialMode("github", "oidc"))
+	assert.False(t, IsValidCredentialMode("github", "token"))
+
+	assert.True(t, IsValidCredentialMode("gitlab", "wif"))
+	assert.True(t, IsValidCredentialMode("gitlab", "token"))
+	assert.False(t, IsValidCredentialMode("gitlab", "oidc"))
+
+	assert.False(t, IsValidCredentialMode("bitbucket", "wif"))
+}
+
 func TestResolveConfig_GitLabFullsendRef(t *testing.T) {
 	input := `
 version: 1

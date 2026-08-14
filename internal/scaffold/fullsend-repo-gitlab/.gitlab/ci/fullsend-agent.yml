@@ -86,8 +86,8 @@ stages:
           export ANTHROPIC_VERTEX_PROJECT_ID="${FULLSEND_GCP_PROJECT_ID}"
           export GCP_OIDC_TOKEN_FILE="${OIDC_TOKEN_FILE}"
         fi
-      elif [ "${FULLSEND_CREDENTIAL_MODE:-}" != "variable" ]; then
-        echo "ERROR: FULLSEND_CREDENTIAL_MODE must be 'wif' or 'variable', got '${FULLSEND_CREDENTIAL_MODE:-}'"
+      elif [ "${FULLSEND_CREDENTIAL_MODE:-}" != "token" ] && [ "${FULLSEND_CREDENTIAL_MODE:-}" != "variable" ]; then
+        echo "ERROR: FULLSEND_CREDENTIAL_MODE must be 'wif' or 'token', got '${FULLSEND_CREDENTIAL_MODE:-}'"
         exit 1
       fi
 

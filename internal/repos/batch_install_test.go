@@ -256,118 +256,90 @@ func TestBatchInstall_InvalidManifest(t *testing.T) {
 	}
 }
 
-func TestBatchInstall_MissingInferenceProject(t *testing.T) {
-	repos := []string{"acme/api", "acme/web"}
-	fc := newFakeClientForBatch(repos...)
-	manifest := newBatchManifest(repos...)
-
-	sc := &fakeScaffoldCommit{}
-
-	// Omit InferenceProject from CLI flags — validation should fail.
-	cfg := batchCfgWithDefaults(manifest)
-	cfg.MaxConcurrency = 2
-	cfg.InferenceProject = ""
-
-	result, err := BatchInstall(context.Background(), cfg, newTestClientFactory(fc), sc.fn(), noopProgress)
-	if err != nil {
-		t.Fatalf("BatchInstall() error: %v", err)
-	}
-	if len(result.Failed) != 2 {
-		t.Errorf("expected 2 failed repos, got %d", len(result.Failed))
-	}
-	for _, r := range result.Failed {
-		if !strings.Contains(r.Error.Error(), "--inference-project is required") {
-			t.Errorf("expected --inference-project error, got: %v", r.Error)
-		}
-	}
-	if len(result.Installed) != 0 {
-		t.Errorf("expected 0 installed, got %d", len(result.Installed))
-	}
-	if sc.called {
-		t.Error("expected no scaffold calls when inference_project is empty")
-	}
-}
-
-func TestBatchInstall_MissingInferenceRegion(t *testing.T) {
+func TestBatchInstall_PartialInferenceFlags_MissingProject(t *testing.T) {
 	repos := []string{"acme/api"}
 	fc := newFakeClientForBatch(repos...)
 	manifest := newBatchManifest(repos...)
 
 	sc := &fakeScaffoldCommit{}
 
-	cfg := batchCfgWithDefaults(manifest)
-	cfg.MaxConcurrency = 2
-	cfg.InferenceRegion = "" // CLI flag missing
+	cfg := BatchInstallConfig{
+		Manifest:               manifest,
+		MaxConcurrency:         2,
+		Roles:                  []string{"triage"},
+		Direct:                 true,
+		InferenceRegion:        "us-central1",
+		InferenceProjectNumber: "123456789",
+	}
 
-	result, err := BatchInstall(context.Background(), cfg, newTestClientFactory(fc), sc.fn(), noopProgress)
-	if err != nil {
-		t.Fatalf("BatchInstall() error: %v", err)
+	_, err := BatchInstall(context.Background(), cfg, newTestClientFactory(fc), sc.fn(), noopProgress)
+	if err == nil {
+		t.Fatal("expected error for partial inference flags")
 	}
-	if len(result.Failed) != 1 {
-		t.Errorf("expected 1 failed repo, got %d", len(result.Failed))
+	if !strings.Contains(err.Error(), "incomplete inference flags") {
+		t.Errorf("expected incomplete inference flags error, got: %v", err)
 	}
-	if result.Failed[0].Error == nil || !strings.Contains(result.Failed[0].Error.Error(), "--inference-region is required") {
-		t.Errorf("expected --inference-region error, got: %v", result.Failed[0].Error)
+	if !strings.Contains(err.Error(), "--inference-project") {
+		t.Errorf("expected missing flag name in error, got: %v", err)
 	}
 	if sc.called {
-		t.Error("expected no scaffold calls when inference_region is empty")
+		t.Error("expected no scaffold calls with partial inference flags")
 	}
 }
 
-func TestBatchInstall_MissingInferenceProjectNumber(t *testing.T) {
+func TestBatchInstall_PartialInferenceFlags_MissingRegion(t *testing.T) {
 	repos := []string{"acme/api"}
 	fc := newFakeClientForBatch(repos...)
 	manifest := newBatchManifest(repos...)
 
 	sc := &fakeScaffoldCommit{}
 
-	// Omit InferenceProjectNumber from CLI flags — validation should fail.
-	cfg := batchCfgWithDefaults(manifest)
-	cfg.MaxConcurrency = 2
-	cfg.InferenceProjectNumber = ""
+	cfg := BatchInstallConfig{
+		Manifest:               manifest,
+		MaxConcurrency:         2,
+		Roles:                  []string{"triage"},
+		Direct:                 true,
+		InferenceProject:       "test-inference",
+		InferenceProjectNumber: "123456789",
+	}
 
-	result, err := BatchInstall(context.Background(), cfg, newTestClientFactory(fc), sc.fn(), noopProgress)
-	if err != nil {
-		t.Fatalf("BatchInstall() error: %v", err)
+	_, err := BatchInstall(context.Background(), cfg, newTestClientFactory(fc), sc.fn(), noopProgress)
+	if err == nil {
+		t.Fatal("expected error for partial inference flags")
 	}
-	if len(result.Failed) != 1 {
-		t.Errorf("expected 1 failed repo, got %d", len(result.Failed))
+	if !strings.Contains(err.Error(), "incomplete inference flags") {
+		t.Errorf("expected incomplete inference flags error, got: %v", err)
 	}
-	for _, r := range result.Failed {
-		if !strings.Contains(r.Error.Error(), "--inference-project-number is required") {
-			t.Errorf("expected --inference-project-number error, got: %v", r.Error)
-		}
-	}
-	if sc.called {
-		t.Error("expected no scaffold calls when inference_project_number is empty")
+	if !strings.Contains(err.Error(), "--inference-region") {
+		t.Errorf("expected missing flag name in error, got: %v", err)
 	}
 }
 
-func TestBatchInstall_NonNumericInferenceProjectNumber(t *testing.T) {
+func TestBatchInstall_PartialInferenceFlags_MissingProjectNumber(t *testing.T) {
 	repos := []string{"acme/api"}
 	fc := newFakeClientForBatch(repos...)
 	manifest := newBatchManifest(repos...)
 
 	sc := &fakeScaffoldCommit{}
 
-	cfg := batchCfgWithDefaults(manifest)
-	cfg.MaxConcurrency = 2
-	cfg.InferenceProjectNumber = "not-a-number"
+	cfg := BatchInstallConfig{
+		Manifest:         manifest,
+		MaxConcurrency:   2,
+		Roles:            []string{"triage"},
+		Direct:           true,
+		InferenceProject: "test-inference",
+		InferenceRegion:  "us-central1",
+	}
 
-	result, err := BatchInstall(context.Background(), cfg, newTestClientFactory(fc), sc.fn(), noopProgress)
-	if err != nil {
-		t.Fatalf("BatchInstall() error: %v", err)
+	_, err := BatchInstall(context.Background(), cfg, newTestClientFactory(fc), sc.fn(), noopProgress)
+	if err == nil {
+		t.Fatal("expected error for partial inference flags")
 	}
-	if len(result.Failed) != 1 {
-		t.Errorf("expected 1 failed repo, got %d", len(result.Failed))
+	if !strings.Contains(err.Error(), "incomplete inference flags") {
+		t.Errorf("expected incomplete inference flags error, got: %v", err)
 	}
-	for _, r := range result.Failed {
-		if !strings.Contains(r.Error.Error(), "must be numeric") {
-			t.Errorf("expected numeric validation error, got: %v", r.Error)
-		}
-	}
-	if sc.called {
-		t.Error("expected no scaffold calls when inference_project_number is non-numeric")
+	if !strings.Contains(err.Error(), "--inference-project-number") {
+		t.Errorf("expected missing flag name in error, got: %v", err)
 	}
 }
 
@@ -378,24 +350,86 @@ func TestBatchInstall_InvalidInferenceProjectID(t *testing.T) {
 
 	sc := &fakeScaffoldCommit{}
 
-	cfg := batchCfgWithDefaults(manifest)
-	cfg.MaxConcurrency = 2
-	cfg.InferenceProject = "BAD"
+	cfg := BatchInstallConfig{
+		Manifest:               manifest,
+		MaxConcurrency:         2,
+		Roles:                  []string{"triage"},
+		Direct:                 true,
+		InferenceProject:       "BAD",
+		InferenceProjectNumber: "123456789",
+		InferenceRegion:        "us-central1",
+	}
+
+	_, err := BatchInstall(context.Background(), cfg, newTestClientFactory(fc), sc.fn(), noopProgress)
+	if err == nil {
+		t.Fatal("expected error for invalid inference project ID")
+	}
+	if !strings.Contains(err.Error(), "not a valid GCP project ID") {
+		t.Errorf("expected GCP project ID validation error, got: %v", err)
+	}
+	if sc.called {
+		t.Error("expected no scaffold calls when inference_project is invalid")
+	}
+}
+
+func TestBatchInstall_NonNumericInferenceProjectNumber(t *testing.T) {
+	repos := []string{"acme/api"}
+	fc := newFakeClientForBatch(repos...)
+	manifest := newBatchManifest(repos...)
+
+	sc := &fakeScaffoldCommit{}
+
+	cfg := BatchInstallConfig{
+		Manifest:               manifest,
+		MaxConcurrency:         2,
+		Roles:                  []string{"triage"},
+		Direct:                 true,
+		InferenceProject:       "test-inference",
+		InferenceProjectNumber: "not-a-number",
+		InferenceRegion:        "us-central1",
+	}
+
+	_, err := BatchInstall(context.Background(), cfg, newTestClientFactory(fc), sc.fn(), noopProgress)
+	if err == nil {
+		t.Fatal("expected error for non-numeric inference project number")
+	}
+	if !strings.Contains(err.Error(), "must be numeric") {
+		t.Errorf("expected numeric validation error, got: %v", err)
+	}
+	if sc.called {
+		t.Error("expected no scaffold calls when inference_project_number is non-numeric")
+	}
+}
+
+func TestBatchInstall_WIFMode_MissingInferenceProject(t *testing.T) {
+	repos := []string{"acme/api", "acme/web"}
+	fc := newFakeClientForBatch(repos...)
+	manifest := newBatchManifest(repos...)
+	manifest.Forge.GitHub.CredentialMode = CredModeWIF
+
+	sc := &fakeScaffoldCommit{}
+
+	cfg := BatchInstallConfig{
+		Manifest:       manifest,
+		MaxConcurrency: 2,
+		Roles:          []string{"triage"},
+		Direct:         true,
+	}
 
 	result, err := BatchInstall(context.Background(), cfg, newTestClientFactory(fc), sc.fn(), noopProgress)
 	if err != nil {
 		t.Fatalf("BatchInstall() error: %v", err)
 	}
-	if len(result.Failed) != 1 {
-		t.Errorf("expected 1 failed repo, got %d", len(result.Failed))
+	if len(result.Failed) != 2 {
+		t.Errorf("expected 2 failed repos, got %d", len(result.Failed))
 	}
 	for _, r := range result.Failed {
-		if !strings.Contains(r.Error.Error(), "not a valid GCP project ID") {
-			t.Errorf("expected GCP project ID validation error, got: %v", r.Error)
+		if !strings.Contains(r.Error.Error(), "credential_mode is 'wif' but --inference-project is not set") {
+			t.Errorf("expected WIF missing inference error, got: %v", r.Error)
 		}
 	}
 	if sc.called {
-		t.Error("expected no scaffold calls when inference_project is invalid")
+		t.Error("expected no scaffold calls when inference_project is empty for WIF repos")
 	}
 }
 
@@ -776,6 +810,7 @@ func TestBatchInstall_SecretReuse_MissingRegionVariable(t *testing.T) {
 	fc.Secrets["acme/api/FULLSEND_GCP_PROJECT_ID"] = true
 	fc.Secrets["acme/api/FULLSEND_GCP_WIF_PROVIDER"] = true
 	manifest := newBatchManifest(repos...)
+	manifest.Forge.GitHub.CredentialMode = CredModeWIF
 
 	sc := &fakeScaffoldCommit{}
 
@@ -1296,5 +1331,36 @@ func TestBatchInstall_Phase1_CheckInstallComponentsError(t *testing.T) {
 	}
 	if len(result.Installed) != 0 {
 		t.Errorf("expected 0 installed, got %d", len(result.Installed))
+	}
+}
+
+func TestBatchInstall_GitHub_OIDCMode_SkipsInferenceValidation(t *testing.T) {
+	repos := []string{"acme/api"}
+	fc := newFakeClientForBatch(repos...)
+
+	manifest := newBatchManifest(repos...)
+	manifest.Forge.GitHub.CredentialMode = CredModeOIDC
+
+	sc := &fakeScaffoldCommit{}
+
+	// No inference flags — OIDC mode should not require them.
+	cfg := BatchInstallConfig{
+		Manifest:       manifest,
+		MaxConcurrency: 2,
+		Roles:          []string{"triage"},
+		Direct:         true,
+	}
+
+	result, err := BatchInstall(context.Background(), cfg, newTestClientFactory(fc), sc.fn(), noopProgress)
+	if err != nil {
+		t.Fatalf("BatchInstall() error: %v", err)
+	}
+	if len(result.Failed) != 0 {
+		for _, r := range result.Failed {
+			t.Errorf("unexpected failure for %s/%s: %v", r.Owner, r.Repo, r.Error)
+		}
+	}
+	if len(result.Installed) != 1 {
+		t.Errorf("expected 1 installed, got %d", len(result.Installed))
 	}
 }

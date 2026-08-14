@@ -95,6 +95,17 @@ func discoverRepo(ctx context.Context, client forge.Client,
 					d.MintURL = v
 				}
 			}
+			// Read GCP region from org variables so migrate receives it
+			// instead of falling back to the wrong default.
+			{
+				v, exists, err := client.GetOrgVariable(ctx, owner, "FULLSEND_GCP_REGION")
+				if err != nil {
+					progress(fullName, "discover", fmt.Sprintf("warning: could not read org variable FULLSEND_GCP_REGION: %v", err))
+				}
+				if err == nil && exists {
+					d.InferenceRegion = v
+				}
+			}
 			d.FullsendRef = ref
 			return d, nil
 		}

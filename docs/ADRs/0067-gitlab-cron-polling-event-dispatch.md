@@ -244,7 +244,7 @@ dependency.
 The install flow selects the mode automatically: if `--gcp-project` is
 provided, OIDC/WIF is configured; otherwise, the CI/CD variable path is
 used. A `FULLSEND_CREDENTIAL_MODE` protected variable (`wif` or
-`variable`) tells pipeline templates which retrieval path to execute.
+`token`) tells pipeline templates which retrieval path to execute.
 
 Key properties shared by both modes:
 

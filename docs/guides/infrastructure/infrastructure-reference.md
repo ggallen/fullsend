@@ -249,8 +249,8 @@ Secrets and variables are deployed at different scopes depending on the installa
 #### GitLab
 
 **Target repo CI/CD variables (protected):**
-- `FULLSEND_FORGE_TOKEN` — Project access token for bot identity (variable mode only)
-- `FULLSEND_CREDENTIAL_MODE` — Set to `"variable"` or `"wif"` (when `--inference-project` is provided)
+- `FULLSEND_FORGE_TOKEN` — Project access token for bot identity (token mode only)
+- `FULLSEND_CREDENTIAL_MODE` — Set to `"token"` or `"wif"` (when `--inference-project` is provided)
 - `FULLSEND_FORGE` — Set to `"gitlab"`
 - `FULLSEND_PER_REPO_INSTALL` — Flag indicating per-repo mode (set to `"true"`)
 - `FULLSEND_LAST_POLL_AT_FAST` — Timestamp of last slash poll run (name predates the slash/events terminology split; used by the slash-command schedule)
