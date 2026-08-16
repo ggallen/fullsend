@@ -249,8 +249,7 @@ Secrets and variables are deployed at different scopes depending on the installa
 #### GitLab
 
 **Target repo CI/CD variables (protected):**
-- `FULLSEND_FORGE_TOKEN` — Project access token for bot identity (token mode only)
-- `FULLSEND_CREDENTIAL_MODE` — Set to `"token"` or `"wif"` (when `--inference-project` is provided)
+- `FULLSEND_FORGE_TOKEN` — Project access token for bot identity (stored as protected CI/CD variable)
 - `FULLSEND_FORGE` — Set to `"gitlab"`
 - `FULLSEND_PER_REPO_INSTALL` — Flag indicating per-repo mode (set to `"true"`)
 - `FULLSEND_LAST_POLL_AT_FAST` — Timestamp of last slash poll run (name predates the slash/events terminology split; used by the slash-command schedule)
@@ -258,18 +257,17 @@ Secrets and variables are deployed at different scopes depending on the installa
 - `FULLSEND_POLL_MODE` — Pipeline schedule variable (`"slash"` or `"events"`); set automatically per schedule during install, not a project-level CI/CD variable
 - `FULLSEND_LABEL_STATE` — JSON object tracking label sync state
 
-**Additional variables when `--inference-project` is provided (WIF mode):**
+**Inference variables (required when inference is configured):**
 - `FULLSEND_GCP_PROJECT_ID` — GCP project ID for inference (stored as a CI/CD secret, protected + masked)
 - `FULLSEND_GCP_WIF_PROVIDER` — WIF provider resource name for inference (stored as a CI/CD secret, protected + masked)
 - `FULLSEND_GCP_REGION` — GCP region for inference (e.g., `us-central1`)
 - `FULLSEND_SA` — Service account email for WIF impersonation
 - `FULLSEND_WIF_PROVIDER` — Full WIF provider resource name (protected CI/CD variable)
-- `FULLSEND_BOT_TOKEN_SECRET` — Secret Manager secret ID for the bot PAT (protected CI/CD variable; the scaffold retrieves the PAT at runtime via OIDC/WIF)
 
 ### Secrets Layer Behavior
 
-- **Install (OIDC mode)**: No-op — PEMs are stored in GCP Secret Manager, not as repo secrets. Only client IDs are written as repo variables.
-- **Analyze**: Checks that expected secrets/variables exist. Cannot verify secret values (GitHub Secrets API is write-only for values). Flags stale secrets from pre-OIDC deployments.
+- **Install**: Writes inference secrets when an inference project is configured.
+- **Analyze**: Checks that expected secrets/variables exist. Cannot verify secret values (GitHub Secrets API is write-only for values).
 - **Uninstall**: Deletes repo secrets and variables for all managed names.
 
 ### Inference Layer Behavior

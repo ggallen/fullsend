@@ -172,7 +172,6 @@ func TestGitLabAgentTemplateContent(t *testing.T) {
 	assert.NotContains(t, s, "fullsend workspace prepare")
 	// Credential validation
 	assert.Contains(t, s, "FULLSEND_FORGE_TOKEN is not set")
-	assert.Contains(t, s, "FULLSEND_CREDENTIAL_MODE must be")
 	// Bot identity verification uses server-side .source from Pipelines API
 	// (deny-by-default case statement, not forgeable CI_PIPELINE_SOURCE env var)
 	assert.Contains(t, s, `jq -r '.source // empty'`)
@@ -275,13 +274,11 @@ func TestGitLabAgentTemplateCredentialValidation(t *testing.T) {
 	require.NoError(t, err)
 	s := string(content)
 	assert.Contains(t, s, "CI_DEBUG_TRACE")
-	assert.Contains(t, s, "FULLSEND_CREDENTIAL_MODE")
 	assert.Contains(t, s, "FULLSEND_FORGE_TOKEN is not set")
-	assert.Contains(t, s, "'wif', 'token', or 'variable'")
-	// Backward compat: legacy "variable" value accepted alongside "token"
-	assert.Contains(t, s, `!= "variable"`)
-	// OIDC token file must NOT be deleted before gcloud secrets
-	assert.NotContains(t, s, "trap - EXIT")
+	// Credential mode branching removed — bot PAT always from CI/CD variable
+	assert.NotContains(t, s, "FULLSEND_CREDENTIAL_MODE")
+	// Inference WIF setup is unconditional when FULLSEND_GCP_WIF_PROVIDER is set
+	assert.Contains(t, s, "FULLSEND_GCP_WIF_PROVIDER")
 }
 
 func TestGitLabPollContent(t *testing.T) {
@@ -294,7 +291,6 @@ func TestGitLabPollContent(t *testing.T) {
 	assert.Contains(t, s, "CI_COMMIT_REF_PROTECTED")
 	// Credential validation
 	assert.Contains(t, s, "FULLSEND_FORGE_TOKEN is not set")
-	assert.Contains(t, s, "FULLSEND_CREDENTIAL_MODE must be")
 	// Defaults to CI_SERVER_URL, not hardcoded gitlab.com
 	assert.Contains(t, s, "CI_SERVER_URL")
 	assert.NotContains(t, s, "https://gitlab.com")

@@ -625,6 +625,7 @@ func TestSetDefault_AllKeys(t *testing.T) {
 	}{
 		{"forge.github.url", "https://ghes.example.com", "url: https://ghes.example.com"},
 		{"forge.github.fullsend_ref", "v3.0.0", "fullsend_ref: v3.0.0"},
+		{"forge.github.mint_mode", "private", "mint_mode: private"},
 		{"forge.gitlab.url", "https://gitlab.example.com", "url: https://gitlab.example.com"},
 		{"forge.gitlab.fullsend_ref", "v4.1.0", "fullsend_ref: v4.1.0"},
 	}
@@ -789,6 +790,19 @@ func TestSetDefault_RunnerTags_RejectsEmpty(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "must not be empty") {
 		t.Errorf("expected 'must not be empty' error, got: %v", err)
+	}
+}
+
+func TestSetDefault_MintModeInvalid(t *testing.T) {
+	dir := t.TempDir()
+	manifestPath := filepath.Join(dir, "repos.yaml")
+
+	err := SetDefault(manifestPath, "forge.github.mint_mode", "hybrid")
+	if err == nil {
+		t.Fatal("expected error for invalid mint_mode")
+	}
+	if !strings.Contains(err.Error(), "must be") {
+		t.Errorf("expected validation error, got: %v", err)
 	}
 }
 

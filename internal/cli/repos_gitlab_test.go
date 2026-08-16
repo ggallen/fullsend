@@ -13,168 +13,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fullsend-ai/fullsend/internal/dispatch/gcf"
 	"github.com/fullsend-ai/fullsend/internal/forge"
 	"github.com/fullsend-ai/fullsend/internal/forge/gitlab"
 	"github.com/fullsend-ai/fullsend/internal/ui"
 )
-
-// fakeSecretManagerClient is a minimal GCFClient implementation for testing
-// the WIF-mode bot token storage path in setupGitLabBotToken.
-type fakeSecretManagerClient struct {
-	secrets        map[string]bool
-	secretVersions map[string][]byte
-	iamBindings    []string
-	errs           map[string]error
-	calls          []string
-}
-
-func newFakeSecretManagerClient() *fakeSecretManagerClient {
-	return &fakeSecretManagerClient{
-		secrets:        make(map[string]bool),
-		secretVersions: make(map[string][]byte),
-		errs:           make(map[string]error),
-	}
-}
-
-func (f *fakeSecretManagerClient) GetSecret(_ context.Context, _, sid string) error {
-	f.calls = append(f.calls, "GetSecret")
-	if err := f.errs["GetSecret"]; err != nil {
-		return err
-	}
-	if !f.secrets[sid] {
-		return gcf.ErrSecretNotFound
-	}
-	return nil
-}
-
-func (f *fakeSecretManagerClient) CreateSecret(_ context.Context, _, sid string) error {
-	f.calls = append(f.calls, "CreateSecret")
-	if err := f.errs["CreateSecret"]; err != nil {
-		return err
-	}
-	f.secrets[sid] = true
-	return nil
-}
-
-func (f *fakeSecretManagerClient) AddSecretVersion(_ context.Context, _, sid string, data []byte) error {
-	f.calls = append(f.calls, "AddSecretVersion")
-	if err := f.errs["AddSecretVersion"]; err != nil {
-		return err
-	}
-	f.secretVersions[sid] = append([]byte(nil), data...)
-	return nil
-}
-
-func (f *fakeSecretManagerClient) SetSecretIAMBinding(_ context.Context, resource, member, role string) error {
-	f.calls = append(f.calls, "SetSecretIAMBinding")
-	if err := f.errs["SetSecretIAMBinding"]; err != nil {
-		return err
-	}
-	f.iamBindings = append(f.iamBindings, fmt.Sprintf("%s:%s:%s", resource, member, role))
-	return nil
-}
-
-func (f *fakeSecretManagerClient) ReplaceSecretIAMBinding(_ context.Context, resource, member, role string) error {
-	f.calls = append(f.calls, "ReplaceSecretIAMBinding")
-	if err := f.errs["ReplaceSecretIAMBinding"]; err != nil {
-		return err
-	}
-	f.iamBindings = append(f.iamBindings, fmt.Sprintf("%s:%s:%s", resource, member, role))
-	return nil
-}
-
-// Stub methods required by GCFClient interface but unused in bot token tests.
-func (f *fakeSecretManagerClient) CreateServiceAccount(context.Context, string, string, string) error {
-	return nil
-}
-func (f *fakeSecretManagerClient) DeleteServiceAccount(context.Context, string, string) error {
-	return nil
-}
-func (f *fakeSecretManagerClient) CreateWIFPool(context.Context, string, string, string) error {
-	return nil
-}
-func (f *fakeSecretManagerClient) DeleteWIFPool(context.Context, string, string) error {
-	return nil
-}
-func (f *fakeSecretManagerClient) CreateWIFProvider(context.Context, string, string, string, gcf.OIDCProviderConfig) error {
-	return nil
-}
-func (f *fakeSecretManagerClient) GetWIFProvider(context.Context, string, string, string) (*gcf.WIFProviderInfo, error) {
-	return nil, nil
-}
-func (f *fakeSecretManagerClient) UpdateWIFProvider(context.Context, string, string, string, gcf.OIDCProviderConfig) error {
-	return nil
-}
-func (f *fakeSecretManagerClient) DisableWIFProvider(context.Context, string, string, string) error {
-	return nil
-}
-func (f *fakeSecretManagerClient) DeleteWIFProvider(context.Context, string, string, string) error {
-	return nil
-}
-func (f *fakeSecretManagerClient) AccessSecretVersion(context.Context, string, string) ([]byte, error) {
-	return nil, nil
-}
-func (f *fakeSecretManagerClient) DisableSecretVersion(_ context.Context, _, _ string) error {
-	f.calls = append(f.calls, "DisableSecretVersion")
-	if err := f.errs["DisableSecretVersion"]; err != nil {
-		return err
-	}
-	return nil
-}
-func (f *fakeSecretManagerClient) EnableSecretVersion(context.Context, string, string) error {
-	return nil
-}
-func (f *fakeSecretManagerClient) DeleteSecret(_ context.Context, _, sid string) error {
-	f.calls = append(f.calls, "DeleteSecret")
-	if err := f.errs["DeleteSecret"]; err != nil {
-		return err
-	}
-	delete(f.secrets, sid)
-	return nil
-}
-func (f *fakeSecretManagerClient) SetProjectIAMBinding(context.Context, string, string, string) error {
-	return nil
-}
-func (f *fakeSecretManagerClient) SetCloudRunInvoker(context.Context, string, string, string) error {
-	return nil
-}
-func (f *fakeSecretManagerClient) DeleteFunction(context.Context, string, string, string) error {
-	return nil
-}
-func (f *fakeSecretManagerClient) GetFunction(context.Context, string, string, string) (*gcf.FunctionInfo, error) {
-	return nil, nil
-}
-func (f *fakeSecretManagerClient) GetCloudRunServiceURI(context.Context, string, string, string) (string, error) {
-	return "", nil
-}
-func (f *fakeSecretManagerClient) UploadFunctionSource(context.Context, string, string, []byte) (json.RawMessage, error) {
-	return nil, nil
-}
-func (f *fakeSecretManagerClient) CreateFunction(context.Context, string, string, string, gcf.FunctionConfig) (string, error) {
-	return "", nil
-}
-func (f *fakeSecretManagerClient) UpdateFunction(context.Context, string, string, string, gcf.FunctionConfig) (string, error) {
-	return "", nil
-}
-func (f *fakeSecretManagerClient) UpdateFunctionEnvVars(context.Context, string, string, string, map[string]string) (string, error) {
-	return "", nil
-}
-func (f *fakeSecretManagerClient) GetProjectNumber(context.Context, string) (string, error) {
-	return "", nil
-}
-func (f *fakeSecretManagerClient) UpdateServiceEnvVars(context.Context, string, string, string, map[string]string) (string, error) {
-	return "", nil
-}
-func (f *fakeSecretManagerClient) GetServiceTrafficEnvVars(context.Context, string, string, string) (map[string]string, error) {
-	return nil, nil
-}
-func (f *fakeSecretManagerClient) GetServiceRevisionInfo(context.Context, string, string, string) (*gcf.ServiceRevisionInfo, error) {
-	return nil, nil
-}
-func (f *fakeSecretManagerClient) WaitForOperation(context.Context, string) error {
-	return nil
-}
 
 func TestSetupGitLabBotToken(t *testing.T) {
 	ctx := context.Background()
@@ -197,7 +39,7 @@ func TestSetupGitLabBotToken(t *testing.T) {
 		var buf bytes.Buffer
 		printer := ui.New(&buf)
 
-		token, err := setupGitLabBotToken(ctx, fake, glClient, printer, "group", "project", "", nil)
+		token, err := setupGitLabBotToken(ctx, fake, glClient, printer, "group", "project", "")
 		require.NoError(t, err)
 		assert.Equal(t, "glpat-test-token", token)
 
@@ -220,7 +62,7 @@ func TestSetupGitLabBotToken(t *testing.T) {
 		var buf bytes.Buffer
 		printer := ui.New(&buf)
 
-		token, err := setupGitLabBotToken(ctx, fake, glClient, printer, "group", "project", "glpat-fallback", nil)
+		token, err := setupGitLabBotToken(ctx, fake, glClient, printer, "group", "project", "glpat-fallback")
 		require.NoError(t, err)
 		assert.Equal(t, "glpat-fallback", token)
 
@@ -243,7 +85,7 @@ func TestSetupGitLabBotToken(t *testing.T) {
 		var buf bytes.Buffer
 		printer := ui.New(&buf)
 
-		_, err = setupGitLabBotToken(ctx, fake, glClient, printer, "group", "project", "", nil)
+		_, err = setupGitLabBotToken(ctx, fake, glClient, printer, "group", "project", "")
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "--gitlab-bot-token")
 	})
@@ -352,7 +194,7 @@ func TestSetupGitLabBotToken_StoreCredentialFailure(t *testing.T) {
 	var buf bytes.Buffer
 	printer := ui.New(&buf)
 
-	_, err = setupGitLabBotToken(ctx, fake, glClient, printer, "group", "project", "", nil)
+	_, err = setupGitLabBotToken(ctx, fake, glClient, printer, "group", "project", "")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "storing bot PAT")
 }
@@ -383,7 +225,7 @@ func TestSetupGitLabBotToken_NilClient_FallbackToken(t *testing.T) {
 	var buf bytes.Buffer
 	printer := ui.New(&buf)
 
-	token, err := setupGitLabBotToken(ctx, fake, nil, printer, "group", "project", "glpat-manual", nil)
+	token, err := setupGitLabBotToken(ctx, fake, nil, printer, "group", "project", "glpat-manual")
 	require.NoError(t, err)
 	assert.Equal(t, "glpat-manual", token)
 	require.Len(t, fake.CreatedSecrets, 1)
@@ -396,7 +238,7 @@ func TestSetupGitLabBotToken_NilClient_NoFallback(t *testing.T) {
 	var buf bytes.Buffer
 	printer := ui.New(&buf)
 
-	_, err := setupGitLabBotToken(ctx, fake, nil, printer, "group", "project", "", nil)
+	_, err := setupGitLabBotToken(ctx, fake, nil, printer, "group", "project", "")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no GitLab client available")
 }
@@ -440,7 +282,7 @@ func TestSetupGitLabBotToken_RevokesExistingBeforeCreate(t *testing.T) {
 	var buf bytes.Buffer
 	printer := ui.New(&buf)
 
-	token, err := setupGitLabBotToken(ctx, fake, glClient, printer, "group", "project", "", nil)
+	token, err := setupGitLabBotToken(ctx, fake, glClient, printer, "group", "project", "")
 	require.NoError(t, err)
 	assert.Equal(t, "glpat-new", token)
 	assert.Equal(t, []int{10}, revokedIDs, "should revoke existing fullsend-bot token")
@@ -681,454 +523,5 @@ func TestCleanupGitLabBotToken(t *testing.T) {
 		err = cleanupGitLabBotToken(ctx, glClient, printer, "group", "project")
 		require.NoError(t, err)
 		assert.Contains(t, buf.String(), "Could not list project access tokens")
-	})
-}
-
-func TestSetupGitLabBotToken_WIFMode(t *testing.T) {
-	ctx := context.Background()
-
-	t.Run("stores token in Secret Manager and sets FULLSEND_BOT_TOKEN_SECRET", func(t *testing.T) {
-		mux := http.NewServeMux()
-		mux.HandleFunc("/api/v4/projects/", func(w http.ResponseWriter, _ *http.Request) {
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]any{
-				"id": 1, "name": "fullsend-bot", "token": "glpat-wif-token", "active": true,
-			})
-		})
-		srv := httptest.NewServer(mux)
-		defer srv.Close()
-
-		glClient, err := gitlab.New("test-token", gitlab.WithBaseURL(srv.URL))
-		require.NoError(t, err)
-
-		fake := &forge.FakeClient{}
-		smClient := newFakeSecretManagerClient()
-		var buf bytes.Buffer
-		printer := ui.New(&buf)
-
-		wifCfg := &botTokenWIFConfig{
-			GCPClient: smClient,
-			ProjectID: "my-gcp-project",
-		}
-
-		token, err := setupGitLabBotToken(ctx, fake, glClient, printer, "group", "project", "", wifCfg)
-		require.NoError(t, err)
-		assert.Equal(t, "glpat-wif-token", token)
-
-		// Verify token was stored in Secret Manager.
-		expectedSecretID, err := botTokenSecretID("group", "project")
-		require.NoError(t, err)
-		assert.Contains(t, smClient.calls, "CreateSecret")
-		assert.Contains(t, smClient.calls, "AddSecretVersion")
-		assert.Equal(t, []byte("glpat-wif-token"), smClient.secretVersions[expectedSecretID])
-
-		// Verify IAM binding was set with replace semantics.
-		assert.Contains(t, smClient.calls, "ReplaceSecretIAMBinding")
-		expectedBinding := fmt.Sprintf("projects/my-gcp-project/secrets/%s:serviceAccount:fullsend-mint@my-gcp-project.iam.gserviceaccount.com:roles/secretmanager.secretAccessor", expectedSecretID)
-		require.Len(t, smClient.iamBindings, 1)
-		assert.Equal(t, expectedBinding, smClient.iamBindings[0])
-
-		// Verify FULLSEND_BOT_TOKEN_SECRET was set as protected CI/CD variable.
-		require.Len(t, fake.CreatedProtectedVars, 1)
-		assert.Equal(t, "FULLSEND_BOT_TOKEN_SECRET", fake.CreatedProtectedVars[0].Name)
-		assert.Equal(t, expectedSecretID, fake.CreatedProtectedVars[0].Value)
-
-		// Verify FULLSEND_FORGE_TOKEN was NOT stored as CI/CD variable.
-		assert.Empty(t, fake.CreatedSecrets, "WIF mode should not store FULLSEND_FORGE_TOKEN as CI/CD variable")
-	})
-
-	t.Run("cleans up legacy secret for dotted names on install", func(t *testing.T) {
-		mux := http.NewServeMux()
-		mux.HandleFunc("/api/v4/projects/", func(w http.ResponseWriter, _ *http.Request) {
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]any{
-				"id": 1, "name": "fullsend-bot", "token": "glpat-wif-dot", "active": true,
-			})
-		})
-		srv := httptest.NewServer(mux)
-		defer srv.Close()
-
-		glClient, err := gitlab.New("test-token", gitlab.WithBaseURL(srv.URL))
-		require.NoError(t, err)
-
-		fc := &forge.FakeClient{}
-		smClient := newFakeSecretManagerClient()
-		smClient.secrets["fullsend-bot-token-my-group--repo"] = true
-		var buf bytes.Buffer
-		printer := ui.New(&buf)
-
-		wifCfg := &botTokenWIFConfig{
-			GCPClient: smClient,
-			ProjectID: "my-gcp-project",
-		}
-
-		_, err = setupGitLabBotToken(ctx, fc, glClient, printer, "my.group", "repo", "", wifCfg)
-		require.NoError(t, err)
-
-		assert.NotContains(t, smClient.secrets, "fullsend-bot-token-my-group--repo",
-			"should delete legacy-named secret during install")
-		assert.Contains(t, buf.String(), "Deleted legacy secret")
-	})
-
-	t.Run("Secret Manager create failure", func(t *testing.T) {
-		mux := http.NewServeMux()
-		mux.HandleFunc("/api/v4/projects/", func(w http.ResponseWriter, _ *http.Request) {
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]any{
-				"id": 1, "name": "fullsend-bot", "token": "glpat-wif", "active": true,
-			})
-		})
-		srv := httptest.NewServer(mux)
-		defer srv.Close()
-
-		glClient, err := gitlab.New("test-token", gitlab.WithBaseURL(srv.URL))
-		require.NoError(t, err)
-
-		fake := &forge.FakeClient{}
-		smClient := newFakeSecretManagerClient()
-		smClient.errs["CreateSecret"] = fmt.Errorf("permission denied")
-		var buf bytes.Buffer
-		printer := ui.New(&buf)
-
-		wifCfg := &botTokenWIFConfig{
-			GCPClient: smClient,
-			ProjectID: "my-gcp-project",
-		}
-
-		_, err = setupGitLabBotToken(ctx, fake, glClient, printer, "group", "project", "", wifCfg)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "Secret Manager")
-	})
-
-	t.Run("IAM binding failure cleans up secret", func(t *testing.T) {
-		mux := http.NewServeMux()
-		mux.HandleFunc("/api/v4/projects/", func(w http.ResponseWriter, _ *http.Request) {
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]any{
-				"id": 1, "name": "fullsend-bot", "token": "glpat-wif", "active": true,
-			})
-		})
-		srv := httptest.NewServer(mux)
-		defer srv.Close()
-
-		glClient, err := gitlab.New("test-token", gitlab.WithBaseURL(srv.URL))
-		require.NoError(t, err)
-
-		fake := &forge.FakeClient{}
-		smClient := newFakeSecretManagerClient()
-		smClient.errs["ReplaceSecretIAMBinding"] = fmt.Errorf("iam error")
-		var buf bytes.Buffer
-		printer := ui.New(&buf)
-
-		wifCfg := &botTokenWIFConfig{
-			GCPClient: smClient,
-			ProjectID: "my-gcp-project",
-		}
-
-		_, err = setupGitLabBotToken(ctx, fake, glClient, printer, "group", "project", "", wifCfg)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "granting secret access")
-
-		// Verify best-effort cleanup deleted the orphaned secret.
-		assert.Contains(t, smClient.calls, "DeleteSecret")
-	})
-
-	t.Run("CreateProtectedCIVariable failure cleans up secret", func(t *testing.T) {
-		mux := http.NewServeMux()
-		mux.HandleFunc("/api/v4/projects/", func(w http.ResponseWriter, _ *http.Request) {
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]any{
-				"id": 1, "name": "fullsend-bot", "token": "glpat-wif", "active": true,
-			})
-		})
-		srv := httptest.NewServer(mux)
-		defer srv.Close()
-
-		glClient, err := gitlab.New("test-token", gitlab.WithBaseURL(srv.URL))
-		require.NoError(t, err)
-
-		fake := forge.NewFakeClient()
-		fake.Errors["CreateProtectedCIVariable"] = fmt.Errorf("variable exists")
-		smClient := newFakeSecretManagerClient()
-		var buf bytes.Buffer
-		printer := ui.New(&buf)
-
-		wifCfg := &botTokenWIFConfig{
-			GCPClient: smClient,
-			ProjectID: "my-gcp-project",
-		}
-
-		_, err = setupGitLabBotToken(ctx, fake, glClient, printer, "group", "project", "", wifCfg)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "setting FULLSEND_BOT_TOKEN_SECRET")
-
-		// Verify best-effort cleanup deleted the orphaned secret.
-		assert.Contains(t, smClient.calls, "DeleteSecret")
-	})
-
-	t.Run("IAM binding failure warns when cleanup also fails", func(t *testing.T) {
-		mux := http.NewServeMux()
-		mux.HandleFunc("/api/v4/projects/", func(w http.ResponseWriter, _ *http.Request) {
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]any{
-				"id": 1, "name": "fullsend-bot", "token": "glpat-wif", "active": true,
-			})
-		})
-		srv := httptest.NewServer(mux)
-		defer srv.Close()
-
-		glClient, err := gitlab.New("test-token", gitlab.WithBaseURL(srv.URL))
-		require.NoError(t, err)
-
-		fake := &forge.FakeClient{}
-		smClient := newFakeSecretManagerClient()
-		smClient.errs["ReplaceSecretIAMBinding"] = fmt.Errorf("iam error")
-		smClient.errs["DeleteSecret"] = fmt.Errorf("delete denied")
-		var buf bytes.Buffer
-		printer := ui.New(&buf)
-
-		wifCfg := &botTokenWIFConfig{
-			GCPClient: smClient,
-			ProjectID: "my-gcp-project",
-		}
-
-		_, err = setupGitLabBotToken(ctx, fake, glClient, printer, "group", "project", "", wifCfg)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "granting secret access")
-		assert.Contains(t, buf.String(), "Failed to clean up secret")
-	})
-
-	t.Run("CreateProtectedCIVariable failure warns when cleanup also fails", func(t *testing.T) {
-		mux := http.NewServeMux()
-		mux.HandleFunc("/api/v4/projects/", func(w http.ResponseWriter, _ *http.Request) {
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]any{
-				"id": 1, "name": "fullsend-bot", "token": "glpat-wif", "active": true,
-			})
-		})
-		srv := httptest.NewServer(mux)
-		defer srv.Close()
-
-		glClient, err := gitlab.New("test-token", gitlab.WithBaseURL(srv.URL))
-		require.NoError(t, err)
-
-		fake := forge.NewFakeClient()
-		fake.Errors["CreateProtectedCIVariable"] = fmt.Errorf("variable exists")
-		smClient := newFakeSecretManagerClient()
-		smClient.errs["DeleteSecret"] = fmt.Errorf("delete denied")
-		var buf bytes.Buffer
-		printer := ui.New(&buf)
-
-		wifCfg := &botTokenWIFConfig{
-			GCPClient: smClient,
-			ProjectID: "my-gcp-project",
-		}
-
-		_, err = setupGitLabBotToken(ctx, fake, glClient, printer, "group", "project", "", wifCfg)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "setting FULLSEND_BOT_TOKEN_SECRET")
-		assert.Contains(t, buf.String(), "Failed to clean up secret")
-	})
-}
-
-func TestStoreSecretManagerToken(t *testing.T) {
-	ctx := context.Background()
-
-	t.Run("creates new secret when not found", func(t *testing.T) {
-		sm := newFakeSecretManagerClient()
-		var buf bytes.Buffer
-		printer := ui.New(&buf)
-
-		err := storeSecretManagerToken(ctx, sm, printer, "proj", "my-secret", []byte("data"))
-		require.NoError(t, err)
-		assert.Equal(t, []string{"GetSecret", "CreateSecret", "AddSecretVersion"}, sm.calls)
-		assert.Equal(t, []byte("data"), sm.secretVersions["my-secret"])
-	})
-
-	t.Run("disables old version when secret already exists", func(t *testing.T) {
-		sm := newFakeSecretManagerClient()
-		sm.secrets["my-secret"] = true
-		var buf bytes.Buffer
-		printer := ui.New(&buf)
-
-		err := storeSecretManagerToken(ctx, sm, printer, "proj", "my-secret", []byte("data"))
-		require.NoError(t, err)
-		assert.Equal(t, []string{"GetSecret", "DisableSecretVersion", "AddSecretVersion"}, sm.calls)
-	})
-
-	t.Run("warns on DisableSecretVersion failure", func(t *testing.T) {
-		sm := newFakeSecretManagerClient()
-		sm.secrets["my-secret"] = true
-		sm.errs["DisableSecretVersion"] = fmt.Errorf("version not found")
-		var buf bytes.Buffer
-		printer := ui.New(&buf)
-
-		err := storeSecretManagerToken(ctx, sm, printer, "proj", "my-secret", []byte("data"))
-		require.NoError(t, err)
-		assert.Contains(t, buf.String(), "Could not disable previous secret version")
-		assert.Equal(t, []string{"GetSecret", "DisableSecretVersion", "AddSecretVersion"}, sm.calls)
-	})
-
-	t.Run("returns error on unexpected GetSecret failure", func(t *testing.T) {
-		sm := newFakeSecretManagerClient()
-		sm.errs["GetSecret"] = fmt.Errorf("rpc error")
-		var buf bytes.Buffer
-		printer := ui.New(&buf)
-
-		err := storeSecretManagerToken(ctx, sm, printer, "proj", "my-secret", []byte("data"))
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "checking secret")
-	})
-
-	t.Run("returns error on AddSecretVersion failure", func(t *testing.T) {
-		sm := newFakeSecretManagerClient()
-		sm.secrets["my-secret"] = true
-		sm.errs["AddSecretVersion"] = fmt.Errorf("quota exceeded")
-		var buf bytes.Buffer
-		printer := ui.New(&buf)
-
-		err := storeSecretManagerToken(ctx, sm, printer, "proj", "my-secret", []byte("data"))
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "adding secret version")
-	})
-}
-
-func TestBotTokenSecretID(t *testing.T) {
-	tests := []struct {
-		owner, repo string
-		want        string
-	}{
-		{"acme", "widgets", "fullsend-bot-token-acme--widgets"},
-		{"my.group", "my/repo", "fullsend-bot-token-my_dot_group--my-repo"},
-		{"group/subgroup", "repo", "fullsend-bot-token-group__subgroup--repo"},
-		{"org", "repo-name", "fullsend-bot-token-org--repo-name"},
-		{"org", "repo.name", "fullsend-bot-token-org--repo_dot_name"},
-	}
-	for _, tt := range tests {
-		got, err := botTokenSecretID(tt.owner, tt.repo)
-		require.NoError(t, err)
-		assert.Equal(t, tt.want, got, "botTokenSecretID(%q, %q)", tt.owner, tt.repo)
-	}
-}
-
-func TestBotTokenSecretID_Collision(t *testing.T) {
-	t.Run("owner-repo boundary", func(t *testing.T) {
-		id1, err := botTokenSecretID("a", "b-c")
-		require.NoError(t, err)
-		id2, err := botTokenSecretID("a-b", "c")
-		require.NoError(t, err)
-		assert.NotEqual(t, id1, id2, "different owner/repo pairs should produce different secret IDs")
-	})
-
-	t.Run("subgroup slash vs hyphen", func(t *testing.T) {
-		id1, err := botTokenSecretID("group/sub", "repo")
-		require.NoError(t, err)
-		id2, err := botTokenSecretID("group-sub", "repo")
-		require.NoError(t, err)
-		assert.NotEqual(t, id1, id2, "subgroup slash and hyphen should produce different secret IDs")
-	})
-
-	t.Run("dot vs hyphen in owner", func(t *testing.T) {
-		idDot, err := botTokenSecretID("my.group", "repo")
-		require.NoError(t, err)
-		idHyphen, err := botTokenSecretID("my-group", "repo")
-		require.NoError(t, err)
-		assert.NotEqual(t, idDot, idHyphen,
-			"dot and hyphen in owner should produce distinct secret IDs")
-	})
-
-	t.Run("dot vs hyphen in repo", func(t *testing.T) {
-		idDot, err := botTokenSecretID("owner", "my.repo")
-		require.NoError(t, err)
-		idHyphen, err := botTokenSecretID("owner", "my-repo")
-		require.NoError(t, err)
-		assert.NotEqual(t, idDot, idHyphen,
-			"dot and hyphen in repo should produce distinct secret IDs")
-	})
-}
-
-func TestLegacyBotTokenSecretID(t *testing.T) {
-	t.Run("no dots produces same as current", func(t *testing.T) {
-		current, err := botTokenSecretID("group", "repo")
-		require.NoError(t, err)
-		legacy := legacyBotTokenSecretID("group", "repo")
-		assert.Equal(t, current, legacy)
-	})
-
-	t.Run("dots produce different IDs", func(t *testing.T) {
-		current, err := botTokenSecretID("my.group", "repo")
-		require.NoError(t, err)
-		legacy := legacyBotTokenSecretID("my.group", "repo")
-		assert.NotEqual(t, current, legacy)
-		assert.Equal(t, "fullsend-bot-token-my_dot_group--repo", current)
-		assert.Equal(t, "fullsend-bot-token-my-group--repo", legacy)
-	})
-}
-
-func TestProjectIDFromSAEmail(t *testing.T) {
-	tests := []struct {
-		email string
-		want  string
-	}{
-		{"fullsend-mint@my-project.iam.gserviceaccount.com", "my-project"},
-		{"sa@another-project-123.iam.gserviceaccount.com", "another-project-123"},
-		{"bad-email", ""},
-		{"user@gmail.com", ""},
-		{"", ""},
-	}
-	for _, tt := range tests {
-		got := projectIDFromSAEmail(tt.email)
-		assert.Equal(t, tt.want, got, "projectIDFromSAEmail(%q)", tt.email)
-	}
-}
-
-func TestCleanupGitLabBotTokenSecret(t *testing.T) {
-	ctx := context.Background()
-
-	t.Run("deletes secret successfully", func(t *testing.T) {
-		smClient := newFakeSecretManagerClient()
-		smClient.secrets["fullsend-bot-token-group--project"] = true
-		var buf bytes.Buffer
-		printer := ui.New(&buf)
-
-		cleanupGitLabBotTokenSecret(ctx, smClient, printer, "my-project", "group", "project")
-		assert.Contains(t, smClient.calls, "DeleteSecret")
-		assert.Contains(t, buf.String(), "Deleted Secret Manager secret")
-	})
-
-	t.Run("warns on delete failure", func(t *testing.T) {
-		smClient := newFakeSecretManagerClient()
-		smClient.errs["DeleteSecret"] = fmt.Errorf("permission denied")
-		var buf bytes.Buffer
-		printer := ui.New(&buf)
-
-		cleanupGitLabBotTokenSecret(ctx, smClient, printer, "my-project", "group", "project")
-		assert.Contains(t, buf.String(), "Failed to delete Secret Manager secret")
-	})
-
-	t.Run("deletes legacy secret for dotted names", func(t *testing.T) {
-		smClient := newFakeSecretManagerClient()
-		smClient.secrets["fullsend-bot-token-my-group--repo"] = true
-		var buf bytes.Buffer
-		printer := ui.New(&buf)
-
-		cleanupGitLabBotTokenSecret(ctx, smClient, printer, "my-project", "my.group", "repo")
-		assert.Contains(t, buf.String(), "Deleted legacy Secret Manager secret fullsend-bot-token-my-group--repo")
-	})
-
-	t.Run("skips legacy when names match", func(t *testing.T) {
-		smClient := newFakeSecretManagerClient()
-		smClient.secrets["fullsend-bot-token-group--project"] = true
-		var buf bytes.Buffer
-		printer := ui.New(&buf)
-
-		cleanupGitLabBotTokenSecret(ctx, smClient, printer, "my-project", "group", "project")
-		deleteCount := 0
-		for _, c := range smClient.calls {
-			if c == "DeleteSecret" {
-				deleteCount++
-			}
-		}
-		assert.Equal(t, 1, deleteCount, "should only call DeleteSecret once when legacy ID matches current")
 	})
 }

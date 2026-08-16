@@ -210,23 +210,8 @@ func uninstallRepoResources(ctx context.Context, cfg ResolvedConfig, progress Pr
 	result.WorkflowDeleted = true
 	progress(fullName, "workflow", "Scaffold files deleted")
 
-	// Read the repo's credential mode before deleting variables, so we
-	// can skip WIF secret deletion for OIDC/token repos. Conservative:
-	// only skip when the mode is positively non-WIF.
-	skipWIFSecrets := false
-	credVal, credExists, credErr := client.GetRepoVariable(ctx, owner, repo, "FULLSEND_CREDENTIAL_MODE")
-	if credErr == nil && credExists {
-		switch credVal {
-		case CredModeOIDC, CredModeToken, "variable":
-			skipWIFSecrets = true
-		}
-	}
-
 	forgeVars := UninstallVarsForForge(cfg.Forge)
-	var forgeSecrets []string
-	if !skipWIFSecrets {
-		forgeSecrets = UninstallSecretsForForge(cfg.Forge)
-	}
+	forgeSecrets := UninstallSecretsForForge(cfg.Forge)
 
 	var varsDeleted, secretsDeleted int
 	var varErr, secretErr error

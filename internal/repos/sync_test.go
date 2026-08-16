@@ -309,12 +309,38 @@ func TestDiff_EmptyManifest(t *testing.T) {
 	}
 }
 
-func TestDiff_EmptyDesiredValue_Skips(t *testing.T) {
+func TestDiff_DefaultMintURL_NoDrift(t *testing.T) {
+	fc := forge.NewFakeClient()
+	m := &Manifest{
+		Version: 1,
+		Forge:   ForgeSection{GitHub: GitHubForgeInfra{}},
+		Defaults: DefaultsConfig{
+			Forge: "github",
+		},
+		Repos: []RepoEntry{{Repo: "org/repo"}},
+	}
+
+	populateInstalledRepo(fc, "org", "repo", "v2.3.0",
+		DefaultPublicMintURL, "us-west1")
+
+	result, err := Diff(context.Background(), m, newTestClientFactory(fc), 4, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	for _, c := range result.Changes {
+		if c.Type == "variable" && c.Field == "FULLSEND_MINT_URL" {
+			t.Errorf("should not report mint URL change when using default: %+v", c)
+		}
+	}
+}
+
+func TestDiff_EmptyDesiredRegion_Skips(t *testing.T) {
 	fc := forge.NewFakeClient()
 	m := &Manifest{
 		Version: 1,
 		Forge: ForgeSection{GitHub: GitHubForgeInfra{
-			MintURL: "",
+			MintURL: DefaultPublicMintURL,
 		}},
 		Defaults: DefaultsConfig{
 			Forge: "github",
@@ -323,7 +349,7 @@ func TestDiff_EmptyDesiredValue_Skips(t *testing.T) {
 	}
 
 	populateInstalledRepo(fc, "org", "repo", "v2.3.0",
-		"https://some-mint.example.com", "us-west1")
+		DefaultPublicMintURL, "us-west1")
 
 	result, err := Diff(context.Background(), m, newTestClientFactory(fc), 4, nil)
 	if err != nil {
@@ -331,7 +357,7 @@ func TestDiff_EmptyDesiredValue_Skips(t *testing.T) {
 	}
 
 	for _, c := range result.Changes {
-		if c.Type == "variable" && (c.Field == "FULLSEND_MINT_URL" || c.Field == "FULLSEND_GCP_REGION") {
+		if c.Type == "variable" && c.Field == "FULLSEND_GCP_REGION" {
 			t.Errorf("should not report change when desired is empty: %+v", c)
 		}
 	}

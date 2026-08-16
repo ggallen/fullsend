@@ -25,45 +25,18 @@ spec:
     - |
       set -euo pipefail
 
-      # CI_DEBUG_TRACE guard — critical in variable mode (sole defense
-      # against PAT exposure at job init), defense-in-depth in WIF mode.
+      # CI_DEBUG_TRACE guard — prevents PAT exposure via debug trace logging.
       if [ "${CI_DEBUG_TRACE:-}" = "true" ]; then
         echo "ERROR: CI_DEBUG_TRACE enabled — aborting to protect secrets"
         exit 1
       fi
 
-      # Credential retrieval — mode selected at install time
-      if [ "${FULLSEND_CREDENTIAL_MODE:-}" = "wif" ]; then
-        # WIF mode: exchange OIDC token for GCP credentials, then
-        # retrieve bot PAT from Secret Manager.
-        # id_tokens: declares FULLSEND_ID_TOKEN (token value as string),
-        # not a _FILE variant — write to temp file for credential_source.
-        OIDC_TOKEN_FILE=$(mktemp)
-        trap 'rm -f "${OIDC_TOKEN_FILE}"' EXIT
-        echo "${FULLSEND_ID_TOKEN}" > "${OIDC_TOKEN_FILE}"
-        gcloud auth login --cred-file=<(cat <<CRED
-      {
-        "type": "external_account",
-        "audience": "//iam.googleapis.com/${FULLSEND_WIF_PROVIDER}",
-        "subject_token_type": "urn:ietf:params:oauth:token-type:jwt",
-        "token_url": "https://sts.googleapis.com/v1/token",
-        "credential_source": { "file": "${OIDC_TOKEN_FILE}" },
-        "service_account_impersonation_url": "https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/${FULLSEND_SA}:generateAccessToken"
-      }
-      CRED
-        )
-        export FULLSEND_FORGE_TOKEN=$(gcloud secrets versions access latest \
-          --secret="${FULLSEND_BOT_TOKEN_SECRET}" \
-          --project="${FULLSEND_GCP_PROJECT_ID}")
-      elif [ "${FULLSEND_CREDENTIAL_MODE:-}" != "token" ] && [ "${FULLSEND_CREDENTIAL_MODE:-}" != "variable" ]; then
-        echo "ERROR: FULLSEND_CREDENTIAL_MODE must be 'wif', 'token', or 'variable', got '${FULLSEND_CREDENTIAL_MODE:-}'"
-        exit 1
-      fi
-      # In token mode, FULLSEND_FORGE_TOKEN is already set from the
-      # protected CI/CD variable — no retrieval step needed.
+      # Bot token: always from FULLSEND_FORGE_TOKEN CI/CD variable.
+      # No credential mode branching — bot PATs are stored as
+      # protected+masked CI/CD variables (per ADR-0028).
 
       if [ -z "${FULLSEND_FORGE_TOKEN:-}" ]; then
-        echo "ERROR: FULLSEND_FORGE_TOKEN is not set after credential retrieval"
+        echo "ERROR: FULLSEND_FORGE_TOKEN is not set — ensure the protected CI/CD variable is configured"
         exit 1
       fi
 

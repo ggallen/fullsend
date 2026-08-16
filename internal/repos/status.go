@@ -16,7 +16,6 @@ type RepoState struct {
 	MintURL         string
 	InferenceRegion string
 	FullsendRef     string
-	CredentialMode  string
 }
 
 // ProbeRepoState reads a repo's current per-repo installation state
@@ -35,7 +34,6 @@ func ProbeRepoState(ctx context.Context, client forge.Client, owner, repo string
 		Installed:       true,
 		MintURL:         vars["FULLSEND_MINT_URL"],
 		InferenceRegion: vars["FULLSEND_GCP_REGION"],
-		CredentialMode:  vars["FULLSEND_CREDENTIAL_MODE"],
 	}
 
 	ref, err := readWorkflowRef(ctx, client, owner, repo, fc)
@@ -58,18 +56,16 @@ type Drift struct {
 // RepoStatus holds the status of a single repo as compared against
 // the manifest's desired state.
 type RepoStatus struct {
-	Owner                  string  `json:"owner"`
-	Repo                   string  `json:"repo"`
-	Installed              bool    `json:"installed"`
-	CurrentRef             string  `json:"current_ref,omitempty"`
-	ExpectedRef            string  `json:"expected_ref,omitempty"`
-	MintURL                string  `json:"mint_url,omitempty"`
-	ExpectedMintURL        string  `json:"expected_mint_url,omitempty"`
-	Region                 string  `json:"region,omitempty"`
-	CredentialMode         string  `json:"credential_mode,omitempty"`
-	ExpectedCredentialMode string  `json:"expected_credential_mode,omitempty"`
-	Drifts                 []Drift `json:"drifts,omitempty"`
-	Error                  string  `json:"error,omitempty"`
+	Owner           string  `json:"owner"`
+	Repo            string  `json:"repo"`
+	Installed       bool    `json:"installed"`
+	CurrentRef      string  `json:"current_ref,omitempty"`
+	ExpectedRef     string  `json:"expected_ref,omitempty"`
+	MintURL         string  `json:"mint_url,omitempty"`
+	ExpectedMintURL string  `json:"expected_mint_url,omitempty"`
+	Region          string  `json:"region,omitempty"`
+	Drifts          []Drift `json:"drifts,omitempty"`
+	Error           string  `json:"error,omitempty"`
 }
 
 // StatusSummary provides aggregate counts across all repos.
@@ -183,11 +179,10 @@ func checkRepoStatus(ctx context.Context, cfg ResolvedConfig, resolver *RefResol
 	fc := cfg.ForgeConfig
 
 	status := RepoStatus{
-		Owner:                  owner,
-		Repo:                   repo,
-		ExpectedRef:            cfg.FullsendRef,
-		ExpectedMintURL:        cfg.MintURL,
-		ExpectedCredentialMode: cfg.CredentialMode,
+		Owner:           owner,
+		Repo:            repo,
+		ExpectedRef:     cfg.FullsendRef,
+		ExpectedMintURL: cfg.MintURL,
 	}
 
 	state, err := ProbeRepoState(ctx, client, owner, repo, fc)
@@ -202,7 +197,6 @@ func checkRepoStatus(ctx context.Context, cfg ResolvedConfig, resolver *RefResol
 	status.MintURL = state.MintURL
 	status.Region = state.InferenceRegion
 	status.CurrentRef = state.FullsendRef
-	status.CredentialMode = state.CredentialMode
 
 	if err != nil {
 		return status
@@ -216,26 +210,8 @@ func checkRepoStatus(ctx context.Context, cfg ResolvedConfig, resolver *RefResol
 		})
 	}
 
-	// Normalize legacy "variable" → "token" before drift comparison.
-	if status.CredentialMode == "variable" {
-		status.CredentialMode = CredModeToken
-	}
-	if cfg.CredentialMode != "" && status.CredentialMode != cfg.CredentialMode {
-		status.Drifts = append(status.Drifts, Drift{
-			Field:    "FULLSEND_CREDENTIAL_MODE",
-			Expected: cfg.CredentialMode,
-			Actual:   status.CredentialMode,
-		})
-	}
-
-	// Pre-existing GitHub repos without FULLSEND_CREDENTIAL_MODE default
-	// to WIF (installed before credential_mode was introduced).
-	discoveredMode := ""
-	if cfg.Forge == ForgeGitHub && status.CredentialMode == "" {
-		discoveredMode = CredModeWIF
-	}
-	effectiveMode := resolveCredentialMode(cfg.Forge, status.CredentialMode, "", discoveredMode)
-	for _, secretName := range requiredSecretsForForge(cfg.Forge, effectiveMode) {
+	// Inference secrets are always required.
+	for _, secretName := range requiredSecretsForForge() {
 		exists, secretErr := client.RepoSecretExists(ctx, owner, repo, secretName)
 		if secretErr != nil {
 			if status.Error == "" {

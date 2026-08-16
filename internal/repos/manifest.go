@@ -31,47 +31,13 @@ const (
 	ForgeGitLab = "gitlab"
 )
 
-// Credential mode constants describe how a repo authenticates to the mint.
+// Mint mode constants control how the token mint authenticates callers.
 const (
-	// CredModeWIF uses OIDC token exchanged via GCP WIF provider.
-	// Requires FULLSEND_GCP_PROJECT_ID + FULLSEND_GCP_WIF_PROVIDER secrets.
-	// Valid for GitHub and GitLab.
-	CredModeWIF = "wif"
+	MintModePublic  = "public"
+	MintModePrivate = "private"
 
-	// CredModeOIDC sends the OIDC token directly to a public mint.
-	// Requires only FULLSEND_MINT_URL. Valid for GitHub only.
-	CredModeOIDC = "oidc"
-
-	// CredModeToken uses a bot PAT stored as a CI/CD variable.
-	// No OIDC, no WIF. Valid for GitLab only.
-	CredModeToken = "token"
+	DefaultPublicMintURL = "https://mint.fullsend.sh"
 )
-
-// validCredentialModes maps each forge to its accepted credential modes.
-var validCredentialModes = map[string]map[string]bool{
-	ForgeGitHub: {CredModeWIF: true, CredModeOIDC: true},
-	ForgeGitLab: {CredModeWIF: true, CredModeToken: true},
-}
-
-// IsValidCredentialMode reports whether mode is valid for the given forge.
-func IsValidCredentialMode(forgeName, mode string) bool {
-	if modes, ok := validCredentialModes[forgeName]; ok {
-		return modes[mode]
-	}
-	return false
-}
-
-// ValidCredentialModesFor returns the accepted credential modes for a forge.
-func ValidCredentialModesFor(forgeName string) []string {
-	switch forgeName {
-	case ForgeGitHub:
-		return []string{CredModeWIF, CredModeOIDC}
-	case ForgeGitLab:
-		return []string{CredModeWIF, CredModeToken}
-	default:
-		return nil
-	}
-}
 
 // validForges is the set of accepted forge values.
 var validForges = map[string]bool{
@@ -110,8 +76,9 @@ type ForgeSection struct {
 type GitHubForgeInfra struct {
 	URL            string `yaml:"url,omitempty"`
 	MintURL        string `yaml:"mint_url,omitempty"`
+	MintMode       string `yaml:"mint_mode,omitempty"`
 	FullsendRef    string `yaml:"fullsend_ref,omitempty"`
-	CredentialMode string `yaml:"credential_mode,omitempty"`
+	CredentialMode string `yaml:"credential_mode,omitempty"` // ignored; accepted for backward compatibility
 }
 
 // DefaultGitHubURL is the default forge URL for GitHub.com.
@@ -136,7 +103,7 @@ type GitLabForgeInfra struct {
 	URL            string   `yaml:"url"`
 	RunnerTags     []string `yaml:"runner_tags,omitempty"`
 	FullsendRef    string   `yaml:"fullsend_ref,omitempty"`
-	CredentialMode string   `yaml:"credential_mode,omitempty"`
+	CredentialMode string   `yaml:"credential_mode,omitempty"` // ignored; accepted for backward compatibility
 }
 
 // DefaultsConfig holds default field values applied to every repo.
@@ -156,9 +123,9 @@ type RepoEntry struct {
 	// fallback chain: per-repo → forge default → built-in default.
 	// Explicit null stops the chain. Omitted fields inherit the
 	// forge-level default.
-	FullsendRef    NullableString `yaml:"fullsend_ref,omitempty"`
-	MintURL        NullableString `yaml:"mint_url,omitempty"`
-	CredentialMode NullableString `yaml:"credential_mode,omitempty"`
+	FullsendRef NullableString `yaml:"fullsend_ref,omitempty"`
+	MintURL     NullableString `yaml:"mint_url,omitempty"`
+	MintMode    NullableString `yaml:"mint_mode,omitempty"`
 
 	// AllowedRemoteResources overrides the defaults.allowed_remote_resources
 	// list. A non-nil slice replaces the default; nil (omitted) inherits.
@@ -196,10 +163,13 @@ func (r *RepoEntry) UnmarshalYAML(node *yaml.Node) error {
 			if err := decodeNullable(val, &r.MintURL); err != nil {
 				return fmt.Errorf("decoding mint_url: %w", err)
 			}
-		case "credential_mode":
-			if err := decodeNullable(val, &r.CredentialMode); err != nil {
-				return fmt.Errorf("decoding credential_mode: %w", err)
+		case "mint_mode":
+			if err := decodeNullable(val, &r.MintMode); err != nil {
+				return fmt.Errorf("decoding mint_mode: %w", err)
 			}
+		case "credential_mode":
+			// Silently ignore for backward compatibility with
+			// manifests that still carry this field.
 		case "allowed_remote_resources":
 			if val.Tag == "!!null" {
 				// Explicit null: treat as empty override (no inheritance).
@@ -221,7 +191,7 @@ func (r *RepoEntry) UnmarshalYAML(node *yaml.Node) error {
 // semantics for AllowedRemoteResources.
 func (r RepoEntry) MarshalYAML() (interface{}, error) {
 	hasOverrides := r.Forge.Set || r.FullsendRef.Set ||
-		r.MintURL.Set || r.CredentialMode.Set || r.AllowedRemoteResources != nil
+		r.MintURL.Set || r.MintMode.Set || r.AllowedRemoteResources != nil
 	if !hasOverrides {
 		return r.Repo, nil
 	}
@@ -250,7 +220,7 @@ func (r RepoEntry) MarshalYAML() (interface{}, error) {
 	appendNullable("forge", r.Forge)
 	appendNullable("fullsend_ref", r.FullsendRef)
 	appendNullable("mint_url", r.MintURL)
-	appendNullable("credential_mode", r.CredentialMode)
+	appendNullable("mint_mode", r.MintMode)
 
 	if r.AllowedRemoteResources != nil {
 		keyNode := &yaml.Node{Kind: yaml.ScalarNode, Value: "allowed_remote_resources"}
@@ -353,8 +323,8 @@ type ResolvedConfig struct {
 	Forge                  string
 	ForgeConfig            ForgeConfig
 	MintURL                string
+	MintMode               string
 	FullsendRef            string
-	CredentialMode         string
 	AllowedRemoteResources []string
 }
 
@@ -564,18 +534,37 @@ func (m *Manifest) Validate() error {
 			}
 		}
 
+		// Validate per-repo mint_mode override.
+		if entry.MintMode.Set && !entry.MintMode.Null && entry.MintMode.Value != "" {
+			if entry.MintMode.Value != MintModePublic && entry.MintMode.Value != MintModePrivate {
+				return fmt.Errorf("repos[%d]: per-repo mint_mode must be %q or %q, got %q", i, MintModePublic, MintModePrivate, entry.MintMode.Value)
+			}
+			if entryForge != ForgeGitHub {
+				return fmt.Errorf("repos[%d]: mint_mode is only supported for GitHub repos", i)
+			}
+		}
+
+		// Reject per-repo mint_url on non-GitHub repos.
+		if entry.MintURL.Set && !entry.MintURL.Null && entry.MintURL.Value != "" && entryForge != ForgeGitHub {
+			return fmt.Errorf("repos[%d]: mint_url is only supported for GitHub repos", i)
+		}
+
+		// Cross-field: if resolved mint_mode is private, mint_url must be
+		// available (no default for private mints).
+		if entryForge == ForgeGitHub {
+			resolvedMode := resolveField(entry.MintMode, m.Forge.GitHub.MintMode, MintModePublic)
+			if resolvedMode == MintModePrivate {
+				resolvedURL := resolveField(entry.MintURL, m.Forge.GitHub.MintURL, "")
+				if resolvedURL == "" {
+					return fmt.Errorf("repos[%d]: mint_url is required when mint_mode is %q", i, MintModePrivate)
+				}
+			}
+		}
+
 		// Validate per-repo fullsend_ref override.
 		if entry.FullsendRef.Set && !entry.FullsendRef.Null && entry.FullsendRef.Value != "" {
 			if !IsValidRef(entry.FullsendRef.Value) {
 				return fmt.Errorf("repos[%d]: per-repo fullsend_ref %q contains invalid characters; only alphanumeric, dot, underscore, and hyphen are allowed", i, entry.FullsendRef.Value)
-			}
-		}
-
-		// Validate per-repo credential_mode override against the entry's forge.
-		if entry.CredentialMode.Set && !entry.CredentialMode.Null && entry.CredentialMode.Value != "" {
-			if !IsValidCredentialMode(entryForge, entry.CredentialMode.Value) {
-				return fmt.Errorf("repos[%d]: credential_mode %q is not valid for forge %q; valid modes: %v",
-					i, entry.CredentialMode.Value, entryForge, ValidCredentialModesFor(entryForge))
 			}
 		}
 
@@ -617,19 +606,26 @@ func (m *Manifest) Validate() error {
 			if err := rejectExtraneousURLParts(u, "forge.github.url"); err != nil {
 				return err
 			}
-			if m.Forge.GitHub.MintURL == "" {
-				return fmt.Errorf("forge.github.mint_url is required when GitHub repos are present")
+			mintMode := m.Forge.GitHub.MintMode
+			if mintMode == "" {
+				mintMode = MintModePublic
 			}
-			mu, err := url.Parse(m.Forge.GitHub.MintURL)
+			if mintMode != MintModePublic && mintMode != MintModePrivate {
+				return fmt.Errorf("forge.github.mint_mode must be %q or %q, got %q", MintModePublic, MintModePrivate, mintMode)
+			}
+			mintURL := m.Forge.GitHub.MintURL
+			if mintURL == "" && mintMode == MintModePublic {
+				mintURL = DefaultPublicMintURL
+			}
+			if mintURL == "" {
+				return fmt.Errorf("forge.github.mint_url is required when mint_mode is %q", MintModePrivate)
+			}
+			mu, err := url.Parse(mintURL)
 			if err != nil || mu.Scheme != "https" || mu.Host == "" {
-				return fmt.Errorf("forge.github.mint_url must be a valid HTTPS URL, got %q", m.Forge.GitHub.MintURL)
+				return fmt.Errorf("forge.github.mint_url must be a valid HTTPS URL, got %q", mintURL)
 			}
 			if m.Forge.GitHub.FullsendRef != "" && !IsValidRef(m.Forge.GitHub.FullsendRef) {
 				return fmt.Errorf("forge.github.fullsend_ref %q contains invalid characters; only alphanumeric, dot, underscore, and hyphen are allowed", m.Forge.GitHub.FullsendRef)
-			}
-			if m.Forge.GitHub.CredentialMode != "" && !IsValidCredentialMode(ForgeGitHub, m.Forge.GitHub.CredentialMode) {
-				return fmt.Errorf("forge.github.credential_mode %q is not valid for GitHub; valid modes: %v",
-					m.Forge.GitHub.CredentialMode, ValidCredentialModesFor(ForgeGitHub))
 			}
 		}
 		if f == ForgeGitLab {
@@ -645,10 +641,6 @@ func (m *Manifest) Validate() error {
 			}
 			if m.Forge.GitLab.FullsendRef != "" && !IsValidRef(m.Forge.GitLab.FullsendRef) {
 				return fmt.Errorf("forge.gitlab.fullsend_ref %q contains invalid characters; only alphanumeric, dot, underscore, and hyphen are allowed", m.Forge.GitLab.FullsendRef)
-			}
-			if m.Forge.GitLab.CredentialMode != "" && !IsValidCredentialMode(ForgeGitLab, m.Forge.GitLab.CredentialMode) {
-				return fmt.Errorf("forge.gitlab.credential_mode %q is not valid for GitLab; valid modes: %v",
-					m.Forge.GitLab.CredentialMode, ValidCredentialModesFor(ForgeGitLab))
 			}
 		}
 	}
@@ -855,12 +847,15 @@ func (m *Manifest) resolveWithEntry(owner, repo string, entry RepoEntry) Resolve
 	// not stored in the manifest and are not populated here.
 	switch cfg.Forge {
 	case ForgeGitHub:
-		cfg.MintURL = resolveField(entry.MintURL, m.Forge.GitHub.MintURL, "")
+		cfg.MintMode = resolveField(entry.MintMode, m.Forge.GitHub.MintMode, MintModePublic)
+		mintURLDefault := ""
+		if cfg.MintMode == MintModePublic {
+			mintURLDefault = DefaultPublicMintURL
+		}
+		cfg.MintURL = resolveField(entry.MintURL, m.Forge.GitHub.MintURL, mintURLDefault)
 		cfg.FullsendRef = resolveField(entry.FullsendRef, m.Forge.GitHub.FullsendRef, "")
-		cfg.CredentialMode = resolveField(entry.CredentialMode, m.Forge.GitHub.CredentialMode, "")
 	case ForgeGitLab:
 		cfg.FullsendRef = resolveField(entry.FullsendRef, m.Forge.GitLab.FullsendRef, "")
-		cfg.CredentialMode = resolveField(entry.CredentialMode, m.Forge.GitLab.CredentialMode, "")
 	}
 	return cfg
 }

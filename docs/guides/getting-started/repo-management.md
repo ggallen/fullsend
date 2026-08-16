@@ -19,7 +19,7 @@ fullsend across an organization. Individual repo owners should use
 - **fullsend CLI** installed (see [releases](https://github.com/fullsend-ai/fullsend/releases))
 - **GitHub access** — admin or write access to the target repositories
 - **`gh` CLI** authenticated with the required OAuth scopes (see [OAuth scope reference](../infrastructure/advanced-setup.md#oauth-scope-reference))
-- **GCP prerequisites** (WIF mode only) — GCP WIF provisioning (`fullsend inference provision`) and mint enrollment (`fullsend mint enroll`) must be completed separately before running `repos install`. OIDC and token modes do not require GCP infrastructure. See [Mint administration](../infrastructure/mint-administration.md) and [Advanced setup](../infrastructure/advanced-setup.md).
+- **GCP prerequisites** — GCP WIF provisioning (`fullsend inference provision`) and mint enrollment (`fullsend mint enroll`, GitHub only) must be completed separately before running `repos install`. When multiple repos share the same GCP project, existing inference secrets are reused automatically. See [Mint administration](../infrastructure/mint-administration.md) and [Advanced setup](../infrastructure/advanced-setup.md).
 
 ## Getting started
 
@@ -87,6 +87,12 @@ repos:
     forge: gitlab
 ```
 
+GitHub repos use a token mint for authentication. The
+`forge.github.mint_mode` field controls the default mint URL:
+`public` (default) uses `https://mint.fullsend.sh` when no explicit
+`mint_url` is set; `private` requires an explicit `mint_url`. Both
+`mint_mode` and `mint_url` can be overridden per-repo.
+
 All repos under the same owner must use the same forge. A GitHub org
 and a GitLab group with the same name are different entities, and
 mixing forges under one owner would route API calls incorrectly.
@@ -95,42 +101,6 @@ For GitLab repos, set the `GITLAB_TOKEN` environment variable or pass
 `--gitlab-token` to `fullsend repos` subcommands. The `GITLAB_API_URL`
 environment variable is kept as a fallback for callers without a
 manifest.
-
-### Credential modes
-
-Each repo authenticates to the mint using one of three credential modes:
-
-| Mode | Forges | Mechanism |
-|------|--------|-----------|
-| `wif` | GitHub, GitLab | OIDC token exchanged via GCP WIF provider; requires `FULLSEND_GCP_PROJECT_ID` + `FULLSEND_GCP_WIF_PROVIDER` secrets |
-| `oidc` | GitHub only | OIDC token sent directly to a public mint; requires only `FULLSEND_MINT_URL` |
-| `token` | GitLab only | Bot PAT stored as a CI/CD variable; no OIDC, no WIF |
-
-Set `credential_mode` at the forge level or per-repo in the manifest:
-
-```yaml
-forge:
-  github:
-    credential_mode: oidc
-    mint_url: https://fullsend-mint-example.run.app
-  gitlab:
-    credential_mode: token
-    url: https://gitlab.example.com
-repos:
-  - acme/api
-  - repo: acme/special
-    forge: github
-    credential_mode: wif   # per-repo override
-```
-
-When omitted, GitHub defaults to `oidc` and GitLab defaults to `token`.
-Both forges default to `wif` when the inference flags are provided.
-
-The three inference flags (`--inference-project`, `--inference-project-number`,
-`--inference-region`) are all-or-nothing: if any one is set, all three
-are required.
-
-See the [CLI reference](../../cli/repos.md) for all flags.
 
 ### Manifest paths and URLs
 
@@ -169,10 +139,8 @@ Install runs in three phases:
    drift (synced automatically) and scaffold ref drift (upgraded
    automatically).
 
-> **Prerequisite:** For repos using `wif` credential mode, GCP
-> infrastructure (WIF pools/providers, mint enrollment) must be
-> provisioned separately before running install. Repos using `oidc`
-> or `token` mode do not require GCP infrastructure.
+> **Prerequisite:** GCP infrastructure (WIF pools/providers, mint
+> enrollment) must be provisioned separately before running install.
 > See `fullsend inference provision` and `fullsend mint enroll`.
 
 > **Note:** When your token does not have direct push access to a target
@@ -374,12 +342,11 @@ Common causes:
 To fix, correct the field name or remove the unrecognized entry and re-run
 the command.
 
-### Partial secret state (WIF mode)
+### Partial secret state
 
-When only one of the two required WIF repo secrets (`FULLSEND_GCP_PROJECT_ID`
+When only one of the two required inference secrets (`FULLSEND_GCP_PROJECT_ID`
 or `FULLSEND_GCP_WIF_PROVIDER`) exists on a repo but not both, `repos
-install` reports an error. This only applies to repos using `wif`
-credential mode:
+install` reports an error:
 
 ```
 partial secret state: FULLSEND_GCP_PROJECT_ID exists but FULLSEND_GCP_WIF_PROVIDER is missing

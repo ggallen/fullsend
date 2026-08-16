@@ -401,38 +401,6 @@ func TestBatchInstall_NonNumericInferenceProjectNumber(t *testing.T) {
 	}
 }
 
-func TestBatchInstall_WIFMode_MissingInferenceProject(t *testing.T) {
-	repos := []string{"acme/api", "acme/web"}
-	fc := newFakeClientForBatch(repos...)
-	manifest := newBatchManifest(repos...)
-	manifest.Forge.GitHub.CredentialMode = CredModeWIF
-
-	sc := &fakeScaffoldCommit{}
-
-	cfg := BatchInstallConfig{
-		Manifest:       manifest,
-		MaxConcurrency: 2,
-		Roles:          []string{"triage"},
-		Direct:         true,
-	}
-
-	result, err := BatchInstall(context.Background(), cfg, newTestClientFactory(fc), sc.fn(), noopProgress)
-	if err != nil {
-		t.Fatalf("BatchInstall() error: %v", err)
-	}
-	if len(result.Failed) != 2 {
-		t.Errorf("expected 2 failed repos, got %d", len(result.Failed))
-	}
-	for _, r := range result.Failed {
-		if !strings.Contains(r.Error.Error(), "credential_mode is 'wif' but --inference-project is not set") {
-			t.Errorf("expected WIF missing inference error, got: %v", r.Error)
-		}
-	}
-	if sc.called {
-		t.Error("expected no scaffold calls when inference_project is empty for WIF repos")
-	}
-}
-
 func TestBatchInstall_WIFProviderFormat(t *testing.T) {
 	repos := []string{"acme/api"}
 	fc := newFakeClientForBatch(repos...)
@@ -804,14 +772,11 @@ func TestBatchInstall_SecretReuse_SkipsValidationAndSecretWrites(t *testing.T) {
 	}
 }
 
-func TestBatchInstall_SecretReuse_MissingRegionVariable(t *testing.T) {
+func TestBatchInstall_WithoutInferenceFlags_RequiresExistingSecrets(t *testing.T) {
 	repos := []string{"acme/api"}
 	fc := newFakeClientForBatch(repos...)
-	fc.Secrets["acme/api/FULLSEND_GCP_PROJECT_ID"] = true
-	fc.Secrets["acme/api/FULLSEND_GCP_WIF_PROVIDER"] = true
+	// No pre-existing secrets on the repo.
 	manifest := newBatchManifest(repos...)
-	manifest.Forge.GitHub.CredentialMode = CredModeWIF
-
 	sc := &fakeScaffoldCommit{}
 
 	cfg := BatchInstallConfig{
@@ -819,6 +784,7 @@ func TestBatchInstall_SecretReuse_MissingRegionVariable(t *testing.T) {
 		MaxConcurrency: 2,
 		Roles:          []string{"triage"},
 		Direct:         true,
+		// No inference flags — repos without existing secrets must fail.
 	}
 
 	result, err := BatchInstall(context.Background(), cfg, newTestClientFactory(fc), sc.fn(), noopProgress)
@@ -828,8 +794,8 @@ func TestBatchInstall_SecretReuse_MissingRegionVariable(t *testing.T) {
 	if len(result.Failed) != 1 {
 		t.Fatalf("expected 1 failed, got %d", len(result.Failed))
 	}
-	if !strings.Contains(result.Failed[0].Error.Error(), "FULLSEND_GCP_REGION variable is missing") {
-		t.Errorf("expected region variable missing error, got: %v", result.Failed[0].Error)
+	if !strings.Contains(result.Failed[0].Error.Error(), "--inference-project is required") {
+		t.Errorf("expected inference project required error, got: %v", result.Failed[0].Error)
 	}
 }
 
@@ -886,7 +852,7 @@ func TestBatchInstall_GitLab_WithInference(t *testing.T) {
 	}
 }
 
-func TestBatchInstall_GitLab_WithoutInference(t *testing.T) {
+func TestBatchInstall_GitLab_WithoutInference_FailsWithoutSecrets(t *testing.T) {
 	repos := []string{"group/project"}
 	fc := newFakeClientForBatch(repos...)
 	manifest := newGitLabBatchManifest(repos...)
@@ -898,22 +864,19 @@ func TestBatchInstall_GitLab_WithoutInference(t *testing.T) {
 		MaxConcurrency: 2,
 		Roles:          []string{"triage"},
 		Direct:         true,
-		// No inference flags — GitLab installs without inference.
+		// No inference flags and no pre-existing secrets — should fail
+		// because inference secrets are always required.
 	}
 
 	result, err := BatchInstall(context.Background(), cfg, newTestClientFactory(fc), sc.fn(), noopProgress)
 	if err != nil {
 		t.Fatalf("BatchInstall(GitLab, no inference) error: %v", err)
 	}
-	if len(result.Failed) != 0 {
-		t.Errorf("expected 0 failed, got %d: %v", len(result.Failed), result.Failed[0].Error)
+	if len(result.Failed) != 1 {
+		t.Fatalf("expected 1 failed, got %d", len(result.Failed))
 	}
-	if len(result.Installed) != 1 {
-		t.Fatalf("expected 1 installed, got %d", len(result.Installed))
-	}
-	// Without inference, no WIF provider should be set.
-	if result.Installed[0].WIFProvider != "" {
-		t.Errorf("WIFProvider should be empty without inference, got %q", result.Installed[0].WIFProvider)
+	if len(result.Installed) != 0 {
+		t.Errorf("expected 0 installed, got %d", len(result.Installed))
 	}
 }
 
@@ -924,7 +887,6 @@ func TestBatchInstall_GitLab_SecretReuse(t *testing.T) {
 	fc.Secrets["group/project/FULLSEND_GCP_PROJECT_ID"] = true
 	fc.Secrets["group/project/FULLSEND_GCP_WIF_PROVIDER"] = true
 	fc.VariableValues["group/project/FULLSEND_GCP_REGION"] = "us-central1"
-	fc.VariableValues["group/project/FULLSEND_CREDENTIAL_MODE"] = "wif"
 	manifest := newGitLabBatchManifest(repos...)
 
 	sc := &fakeScaffoldCommit{}
@@ -950,17 +912,6 @@ func TestBatchInstall_GitLab_SecretReuse(t *testing.T) {
 	// Verify no new secrets were written.
 	if len(fc.CreatedSecrets) != 0 {
 		t.Errorf("expected no secret writes with ReuseSecrets, got %d", len(fc.CreatedSecrets))
-	}
-	// Verify discovered credential mode is preserved as "wif".
-	var credMode string
-	for _, v := range fc.Variables {
-		if v.Name == "FULLSEND_CREDENTIAL_MODE" {
-			credMode = v.Value
-			break
-		}
-	}
-	if credMode != "wif" {
-		t.Errorf("FULLSEND_CREDENTIAL_MODE = %q, want %q (discovered mode should be preserved)", credMode, "wif")
 	}
 }
 
@@ -1331,36 +1282,5 @@ func TestBatchInstall_Phase1_CheckInstallComponentsError(t *testing.T) {
 	}
 	if len(result.Installed) != 0 {
 		t.Errorf("expected 0 installed, got %d", len(result.Installed))
-	}
-}
-
-func TestBatchInstall_GitHub_OIDCMode_SkipsInferenceValidation(t *testing.T) {
-	repos := []string{"acme/api"}
-	fc := newFakeClientForBatch(repos...)
-
-	manifest := newBatchManifest(repos...)
-	manifest.Forge.GitHub.CredentialMode = CredModeOIDC
-
-	sc := &fakeScaffoldCommit{}
-
-	// No inference flags — OIDC mode should not require them.
-	cfg := BatchInstallConfig{
-		Manifest:       manifest,
-		MaxConcurrency: 2,
-		Roles:          []string{"triage"},
-		Direct:         true,
-	}
-
-	result, err := BatchInstall(context.Background(), cfg, newTestClientFactory(fc), sc.fn(), noopProgress)
-	if err != nil {
-		t.Fatalf("BatchInstall() error: %v", err)
-	}
-	if len(result.Failed) != 0 {
-		for _, r := range result.Failed {
-			t.Errorf("unexpected failure for %s/%s: %v", r.Owner, r.Repo, r.Error)
-		}
-	}
-	if len(result.Installed) != 1 {
-		t.Errorf("expected 1 installed, got %d", len(result.Installed))
 	}
 }

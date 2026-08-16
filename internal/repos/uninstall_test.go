@@ -466,51 +466,6 @@ func TestUninstall_GitLabConfigYaml_Deleted(t *testing.T) {
 	}
 }
 
-func TestUninstall_OIDCMode_SkipsWIFSecrets(t *testing.T) {
-	client := newInstalledFakeClient("acme/api")
-	client.VariableValues["acme/api/FULLSEND_CREDENTIAL_MODE"] = CredModeOIDC
-	client.VariablesExist["acme/api/FULLSEND_CREDENTIAL_MODE"] = true
-
-	results, err := Uninstall(context.Background(), UninstallConfig{
-		Manifest:       testManifest("acme/api"),
-		Repos:          []string{"acme/api"},
-		MaxConcurrency: 4,
-	}, newTestClientFactory(client), nil)
-
-	if err != nil {
-		t.Fatalf("Uninstall() error = %v", err)
-	}
-	r := results[0]
-	if !r.Success {
-		t.Errorf("Success = false, want true; Error = %v", r.Error)
-	}
-	if r.SecretsDeleted != 0 {
-		t.Errorf("SecretsDeleted = %d, want 0 (OIDC mode has no WIF secrets)", r.SecretsDeleted)
-	}
-}
-
-func TestUninstall_TokenMode_SkipsWIFSecrets(t *testing.T) {
-	client := newInstalledFakeGitLabClient("acme/api")
-	client.VariableValues["acme/api/FULLSEND_CREDENTIAL_MODE"] = CredModeToken
-
-	results, err := Uninstall(context.Background(), UninstallConfig{
-		Manifest:       testGitLabManifest("acme/api"),
-		Repos:          []string{"acme/api"},
-		MaxConcurrency: 4,
-	}, newTestClientFactory(client), nil)
-
-	if err != nil {
-		t.Fatalf("Uninstall() error = %v", err)
-	}
-	r := results[0]
-	if !r.Success {
-		t.Errorf("Success = false, want true; Error = %v", r.Error)
-	}
-	if r.SecretsDeleted != 0 {
-		t.Errorf("SecretsDeleted = %d, want 0 (token mode has no WIF secrets)", r.SecretsDeleted)
-	}
-}
-
 func TestUninstall_ProgressCallbacks(t *testing.T) {
 	client := newInstalledFakeClient("acme/api")
 

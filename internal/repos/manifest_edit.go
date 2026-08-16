@@ -279,6 +279,7 @@ var ValidDefaultKeys = []string{
 	"defaults.allowed_remote_resources",
 	"forge.github.url",
 	"forge.github.mint_url",
+	"forge.github.mint_mode",
 	"forge.github.fullsend_ref",
 	"forge.gitlab.url",
 	"forge.gitlab.fullsend_ref",
@@ -342,6 +343,8 @@ func SetDefault(manifestPath, key, value string) error {
 		m.Forge.GitHub.URL = value
 	case "forge.github.mint_url":
 		m.Forge.GitHub.MintURL = value
+	case "forge.github.mint_mode":
+		m.Forge.GitHub.MintMode = value
 	case "forge.github.fullsend_ref":
 		m.Forge.GitHub.FullsendRef = value
 	case "forge.gitlab.url":
@@ -375,6 +378,10 @@ func validateDefaultValue(key, value string) error {
 			if err := rejectExtraneousURLParts(u, key); err != nil {
 				return err
 			}
+		}
+	case "forge.github.mint_mode":
+		if value != MintModePublic && value != MintModePrivate {
+			return fmt.Errorf("forge.github.mint_mode must be %q or %q, got %q", MintModePublic, MintModePrivate, value)
 		}
 	case "forge.github.fullsend_ref", "forge.gitlab.fullsend_ref":
 		if !IsValidRef(value) {

@@ -11,11 +11,9 @@ import (
 	"github.com/fullsend-ai/fullsend/internal/forge"
 )
 
-// canonicalMintURL is the hardcoded mint URL used for all per-repo
-// installations during migration. Discovery from org config or org-level
-// variables is unnecessary — all per-repo installations during migration
-// should use this URL.
-const canonicalMintURL = "https://mint.fullsend.sh"
+// canonicalMintURL is the mint URL used for all per-repo installations
+// during migration. Reuses the public-mode default from manifest.go.
+const canonicalMintURL = DefaultPublicMintURL
 
 // MigrateConfig holds configuration for the repos migrate command.
 type MigrateConfig struct {

@@ -91,27 +91,6 @@ Runs in three phases:
 2. **Provision** — repos in the manifest that are not yet provisioned are installed (scaffold files, variables, secrets). Repos with a guard variable set but other components missing are repaired automatically.
 3. **Convergence** — repos that are already installed are checked for variable drift (synced automatically) and scaffold ref drift (upgraded automatically).
 
-> **Credential modes:** Each repo's `credential_mode` controls how it authenticates to the mint. Set this at the forge level or per-repo in `repos.yaml`:
->
-> | Mode | Forges | Mechanism |
-> |------|--------|-----------|
-> | `wif` | GitHub, GitLab | OIDC token exchanged via GCP WIF provider; requires `FULLSEND_GCP_PROJECT_ID` + `FULLSEND_GCP_WIF_PROVIDER` secrets |
-> | `oidc` | GitHub | OIDC token sent directly to a public mint; requires only `FULLSEND_MINT_URL` |
-> | `token` | GitLab | Bot PAT stored as a CI/CD variable; no OIDC, no WIF |
->
-> When `credential_mode` is not set in the manifest, repos default to `oidc` for GitHub and `token` for GitLab. Both forges default to `wif` when `--inference-project` is provided.
->
-> **Inference flags** (`--inference-project`, `--inference-project-number`,
-> `--inference-region`) are all-or-nothing: if any one is set, all three
-> are required. When provided, the credential mode defaults to `wif` and
-> GCP secrets are written. GCP infrastructure (WIF pools/providers) must
-> be provisioned separately via `inference provision` and `mint enroll`
-> before running `repos install` with `wif` mode.
->
-> For **GitLab repos**, inference is optional. Without the inference
-> flags, GitLab repos use `FULLSEND_CREDENTIAL_MODE=token` (forge token
-> from CI/CD variable, no GCP infrastructure needed).
-
 ```bash
 fullsend repos install -f repos.yaml
 fullsend repos install --dry-run
@@ -143,7 +122,7 @@ When repos are specified as positional arguments, only those repos are processed
 
 ### GitLab bot token
 
-For GitLab repos, `repos install` automatically creates a project access token. In token mode (no `--inference-project`), it is stored as the `FULLSEND_FORGE_TOKEN` CI/CD variable. In WIF mode (with `--inference-project`), it is stored in GCP Secret Manager and `FULLSEND_BOT_TOKEN_SECRET` is set as a protected CI/CD variable pointing to the secret name. Creating project access tokens requires GitLab Premium or Ultimate.
+For GitLab repos, `repos install` automatically creates a project access token and stores it as the `FULLSEND_FORGE_TOKEN` protected CI/CD variable. Creating project access tokens requires GitLab Premium or Ultimate.
 
 On free-tier or Community Edition instances where project access tokens are not available, pass `--gitlab-bot-token` with a personal access token (PAT) that has `api` scope:
 
@@ -226,7 +205,7 @@ Requires a GitHub token via `GH_TOKEN`, `GITHUB_TOKEN`, or `gh auth token`. For 
 
 Tear down fullsend from the specified repos and remove them from the manifest. By default, the command tears down first (deleting workflow files, variables, and secrets), then removes successfully-torn-down repos from the manifest. Partial failures leave the manifest entry intact so the user can retry.
 
-GCP WIF pool/provider cleanup is handled separately via `inference deprovision`. For GitLab WIF-mode repos, `repos uninstall` performs best-effort deletion of the bot token Secret Manager secret.
+GCP WIF pool/provider cleanup is handled separately via `inference deprovision`.
 
 When multiple repos are targeted (via globs or explicit bulk lists), the command prompts for confirmation unless `--yes` is set.
 
@@ -277,7 +256,8 @@ fullsend repos set-default forge.github.mint_url ""   # removes the key
 |-----|------|-------------|
 | `defaults.allowed_remote_resources` | comma-separated URLs | HTTPS URLs agents may fetch at runtime |
 | `forge.github.url` | URL | GitHub instance URL (default: `https://github.com`) |
-| `forge.github.mint_url` | URL | Cloud Run endpoint URL for the token mint |
+| `forge.github.mint_url` | URL | Cloud Run endpoint URL for the token mint (defaults to `https://mint.fullsend.sh` in public mode) |
+| `forge.github.mint_mode` | `public` or `private` | Mint authentication mode (default: `public`) |
 | `forge.github.fullsend_ref` | ref string | Git ref to pin in scaffold workflow YAML |
 | `forge.gitlab.url` | URL | GitLab instance URL |
 | `forge.gitlab.fullsend_ref` | ref string | Git ref to pin in scaffold dispatch file |

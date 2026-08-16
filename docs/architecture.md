@@ -209,7 +209,7 @@ One concrete implementation option is [`oidcx`](https://github.com/oxidecomputer
 - ~~What identity model fits best — separate bot accounts per agent role, a single bot account with role metadata, GitHub App installations, or something else?~~ Decided in [ADR 0007](ADRs/0007-per-role-github-apps.md).
 - How are credentials rotated and revoked, and who has authority to do that?
 - Does the identity provider integrate with existing secrets management, or is it a new system?
-- How will per-role identity work on GitLab and Forgejo, which lack GitHub's app manifest flow? GitLab uses a bot PAT credential model (via OIDC/WIF or protected CI/CD variable) — see [ADR 0067](ADRs/0067-gitlab-cron-polling-event-dispatch.md).
+- How will per-role identity work on GitLab and Forgejo, which lack GitHub's app manifest flow? GitLab uses a bot PAT stored as a protected CI/CD variable — see [ADR 0067](ADRs/0067-gitlab-cron-polling-event-dispatch.md).
 
 ## Agent Dispatch and Coordination Layer
 

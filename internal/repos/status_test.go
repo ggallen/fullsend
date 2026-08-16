@@ -877,12 +877,11 @@ func TestStatus_GlobExpandError(t *testing.T) {
 	}
 }
 
-func TestStatus_EmptyMintURL_NoDrift(t *testing.T) {
+func TestStatus_DefaultMintURL_NoDrift(t *testing.T) {
 	fc := forge.NewFakeClient()
 	m := &Manifest{
 		Version: 1,
 		Forge: ForgeSection{GitHub: GitHubForgeInfra{
-			MintURL:     "",
 			FullsendRef: "v2.3.0",
 		}},
 		Defaults: DefaultsConfig{
@@ -891,7 +890,7 @@ func TestStatus_EmptyMintURL_NoDrift(t *testing.T) {
 		Repos: []RepoEntry{{Repo: "org/repo"}},
 	}
 
-	populateInstalledRepo(fc, "org", "repo", "v2.3.0", "https://some-mint.example.com", "us-central1")
+	populateInstalledRepo(fc, "org", "repo", "v2.3.0", DefaultPublicMintURL, "us-central1")
 
 	result, err := Status(context.Background(), m, newTestClientFactory(fc), 4, nil)
 	if err != nil {
@@ -899,7 +898,7 @@ func TestStatus_EmptyMintURL_NoDrift(t *testing.T) {
 	}
 
 	if len(result.Repos[0].Drifts) != 0 {
-		t.Errorf("expected no drift when manifest mint URL is empty, got %v", result.Repos[0].Drifts)
+		t.Errorf("expected no drift when using default public mint URL, got %v", result.Repos[0].Drifts)
 	}
 }
 
@@ -1074,77 +1073,5 @@ func TestStatus_RepoFilterPartialUnmatched(t *testing.T) {
 	}
 	if result.Warnings[0] != `--repo filter "org/nonexistent" matched no manifest entries` {
 		t.Errorf("warning = %q, want match message", result.Warnings[0])
-	}
-}
-
-func TestStatus_WIFMode_MissingSecrets_ReportsDrift(t *testing.T) {
-	fc := forge.NewFakeClient()
-	m := &Manifest{
-		Version: 1,
-		Forge: ForgeSection{GitHub: GitHubForgeInfra{
-			MintURL:     "https://mint.example.com",
-			FullsendRef: "v2.3.0",
-		}},
-		Defaults: DefaultsConfig{Forge: "github"},
-		Repos:    []RepoEntry{{Repo: "org/repo"}},
-	}
-
-	fc.VariableValues["org/repo/FULLSEND_PER_REPO_INSTALL"] = "true"
-	fc.VariableValues["org/repo/FULLSEND_MINT_URL"] = "https://mint.example.com"
-	fc.VariableValues["org/repo/FULLSEND_GCP_REGION"] = "us-central1"
-	fc.VariableValues["org/repo/FULLSEND_CREDENTIAL_MODE"] = CredModeWIF
-	fc.FileContents["org/repo/.github/workflows/fullsend.yml"] = []byte(shimWorkflow)
-	// No secrets set — WIF mode should report missing secrets.
-
-	result, err := Status(context.Background(), m, newTestClientFactory(fc), 4, nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	s := result.Repos[0]
-	secretFields := map[string]bool{}
-	for _, d := range s.Drifts {
-		secretFields[d.Field] = true
-	}
-	for _, name := range []string{"FULLSEND_GCP_PROJECT_ID", "FULLSEND_GCP_WIF_PROVIDER"} {
-		if !secretFields[name] {
-			t.Errorf("expected drift for missing secret %s", name)
-		}
-	}
-}
-
-func TestStatus_OIDCMode_NoSecretDrift(t *testing.T) {
-	fc := forge.NewFakeClient()
-	m := &Manifest{
-		Version: 1,
-		Forge: ForgeSection{GitHub: GitHubForgeInfra{
-			MintURL:        "https://mint.example.com",
-			FullsendRef:    "v2.3.0",
-			CredentialMode: CredModeOIDC,
-		}},
-		Defaults: DefaultsConfig{Forge: "github"},
-		Repos:    []RepoEntry{{Repo: "org/repo"}},
-	}
-
-	fc.VariableValues["org/repo/FULLSEND_PER_REPO_INSTALL"] = "true"
-	fc.VariableValues["org/repo/FULLSEND_MINT_URL"] = "https://mint.example.com"
-	fc.VariableValues["org/repo/FULLSEND_GCP_REGION"] = "us-central1"
-	fc.VariableValues["org/repo/FULLSEND_CREDENTIAL_MODE"] = "oidc"
-	fc.FileContents["org/repo/.github/workflows/fullsend.yml"] = []byte(shimWorkflow)
-	// No WIF secrets — OIDC mode should NOT report them missing.
-
-	result, err := Status(context.Background(), m, newTestClientFactory(fc), 4, nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	s := result.Repos[0]
-	for _, d := range s.Drifts {
-		if d.Field == "FULLSEND_GCP_PROJECT_ID" || d.Field == "FULLSEND_GCP_WIF_PROVIDER" {
-			t.Errorf("OIDC mode should not report WIF secret drift: %+v", d)
-		}
-	}
-	if len(s.Drifts) != 0 {
-		t.Errorf("expected no drifts for OIDC repo, got %v", s.Drifts)
 	}
 }

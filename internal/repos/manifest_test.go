@@ -292,15 +292,25 @@ repos:
 	assert.ErrorContains(t, err, "unsupported manifest version 2")
 }
 
-func TestValidate_MissingMintURL_GitHubRepos(t *testing.T) {
+func TestValidate_MissingMintURL_PublicMode_DefaultsOK(t *testing.T) {
 	m := Manifest{
 		Version:  1,
 		Forge:    ForgeSection{GitHub: GitHubForgeInfra{}},
 		Defaults: DefaultsConfig{Forge: "github"},
 		Repos:    []RepoEntry{{Repo: "acme/repo"}},
 	}
+	assert.NoError(t, m.Validate())
+}
+
+func TestValidate_MissingMintURL_PrivateMode_Errors(t *testing.T) {
+	m := Manifest{
+		Version:  1,
+		Forge:    ForgeSection{GitHub: GitHubForgeInfra{MintMode: MintModePrivate}},
+		Defaults: DefaultsConfig{Forge: "github"},
+		Repos:    []RepoEntry{{Repo: "acme/repo"}},
+	}
 	err := m.Validate()
-	assert.ErrorContains(t, err, "forge.github.mint_url is required")
+	assert.ErrorContains(t, err, "mint_url is required when mint_mode is \"private\"")
 }
 
 func TestValidate_InvalidMintURL_GitHubRepos(t *testing.T) {
@@ -324,7 +334,7 @@ func TestValidate_GitLabOnly_NoMintRequired(t *testing.T) {
 	assert.NoError(t, m.Validate())
 }
 
-func TestValidate_MixedForge_RequiresMint(t *testing.T) {
+func TestValidate_MixedForge_PublicMintDefaultsOK(t *testing.T) {
 	m := Manifest{
 		Version:  1,
 		Forge:    ForgeSection{GitLab: GitLabForgeInfra{URL: "https://gitlab.example.com"}},
@@ -334,8 +344,24 @@ func TestValidate_MixedForge_RequiresMint(t *testing.T) {
 			{Repo: "gh-org/repo", Forge: NullableString{Set: true, Value: "github"}},
 		},
 	}
+	assert.NoError(t, m.Validate())
+}
+
+func TestValidate_MixedForge_PrivateMintRequiresURL(t *testing.T) {
+	m := Manifest{
+		Version: 1,
+		Forge: ForgeSection{
+			GitHub: GitHubForgeInfra{MintMode: MintModePrivate},
+			GitLab: GitLabForgeInfra{URL: "https://gitlab.example.com"},
+		},
+		Defaults: DefaultsConfig{Forge: "gitlab"},
+		Repos: []RepoEntry{
+			{Repo: "gitlab-group/repo"},
+			{Repo: "gh-org/repo", Forge: NullableString{Set: true, Value: "github"}},
+		},
+	}
 	err := m.Validate()
-	assert.ErrorContains(t, err, "forge.github.mint_url is required")
+	assert.ErrorContains(t, err, "mint_url is required when mint_mode is \"private\"")
 }
 
 func TestValidate_InvalidRepoFormat(t *testing.T) {
@@ -1924,121 +1950,6 @@ func TestValidate_GitLabFullsendRefValid(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestValidate_CredentialMode_ValidForGitHub(t *testing.T) {
-	for _, mode := range []string{"wif", "oidc"} {
-		m := Manifest{
-			Version: 1,
-			Forge: ForgeSection{GitHub: GitHubForgeInfra{
-				MintURL:        "https://mint.example.com",
-				CredentialMode: mode,
-			}},
-			Defaults: DefaultsConfig{Forge: "github"},
-			Repos:    []RepoEntry{{Repo: "acme/api"}},
-		}
-		err := m.Validate()
-		require.NoError(t, err, "mode %q should be valid for GitHub", mode)
-	}
-}
-
-func TestValidate_CredentialMode_InvalidForGitHub(t *testing.T) {
-	m := Manifest{
-		Version: 1,
-		Forge: ForgeSection{GitHub: GitHubForgeInfra{
-			MintURL:        "https://mint.example.com",
-			CredentialMode: "token",
-		}},
-		Defaults: DefaultsConfig{Forge: "github"},
-		Repos:    []RepoEntry{{Repo: "acme/api"}},
-	}
-	err := m.Validate()
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "credential_mode")
-}
-
-func TestValidate_CredentialMode_ValidForGitLab(t *testing.T) {
-	for _, mode := range []string{"wif", "token"} {
-		m := Manifest{
-			Version: 1,
-			Forge: ForgeSection{GitLab: GitLabForgeInfra{
-				URL:            "https://gitlab.example.com",
-				CredentialMode: mode,
-			}},
-			Defaults: DefaultsConfig{Forge: "gitlab"},
-			Repos:    []RepoEntry{{Repo: "acme/api"}},
-		}
-		err := m.Validate()
-		require.NoError(t, err, "mode %q should be valid for GitLab", mode)
-	}
-}
-
-func TestValidate_CredentialMode_InvalidForGitLab(t *testing.T) {
-	m := Manifest{
-		Version: 1,
-		Forge: ForgeSection{GitLab: GitLabForgeInfra{
-			URL:            "https://gitlab.example.com",
-			CredentialMode: "oidc",
-		}},
-		Defaults: DefaultsConfig{Forge: "gitlab"},
-		Repos:    []RepoEntry{{Repo: "acme/api"}},
-	}
-	err := m.Validate()
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "credential_mode")
-}
-
-func TestValidate_PerRepoCredentialMode_Invalid(t *testing.T) {
-	m := Manifest{
-		Version: 1,
-		Forge: ForgeSection{GitHub: GitHubForgeInfra{
-			MintURL: "https://mint.example.com",
-		}},
-		Defaults: DefaultsConfig{Forge: "github"},
-		Repos: []RepoEntry{{
-			Repo:           "acme/api",
-			CredentialMode: NullableString{Set: true, Value: "token"},
-		}},
-	}
-	err := m.Validate()
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "credential_mode")
-	assert.Contains(t, err.Error(), "not valid for forge")
-}
-
-func TestResolveConfig_CredentialMode(t *testing.T) {
-	m := Manifest{
-		Version: 1,
-		Forge: ForgeSection{GitHub: GitHubForgeInfra{
-			MintURL:        "https://mint.example.com",
-			CredentialMode: "oidc",
-		}},
-		Defaults: DefaultsConfig{Forge: "github"},
-		Repos: []RepoEntry{
-			{Repo: "acme/api"},
-			{Repo: "acme/special", CredentialMode: NullableString{Set: true, Value: "wif"}},
-		},
-	}
-	err := m.Validate()
-	require.NoError(t, err)
-
-	cfg1, _ := m.ResolveConfig("acme", "api")
-	assert.Equal(t, "oidc", cfg1.CredentialMode)
-
-	cfg2, _ := m.ResolveConfig("acme", "special")
-	assert.Equal(t, "wif", cfg2.CredentialMode)
-}
-
-func TestIsValidCredentialMode(t *testing.T) {
-	assert.True(t, IsValidCredentialMode("github", "wif"))
-	assert.True(t, IsValidCredentialMode("github", "oidc"))
-	assert.False(t, IsValidCredentialMode("github", "token"))
-
-	assert.True(t, IsValidCredentialMode("gitlab", "wif"))
-	assert.True(t, IsValidCredentialMode("gitlab", "token"))
-	assert.False(t, IsValidCredentialMode("gitlab", "oidc"))
-
-	assert.False(t, IsValidCredentialMode("bitbucket", "wif"))
-}
-
 func TestResolveConfig_GitLabFullsendRef(t *testing.T) {
 	input := `
 version: 1
@@ -2110,6 +2021,158 @@ repos:
 	cfg, found := m.ResolveConfig("acme", "unpinned")
 	require.True(t, found)
 	assert.Equal(t, "", cfg.FullsendRef, "null should stop fallback chain")
+}
+
+func TestResolveConfig_MintModeDefaults(t *testing.T) {
+	input := `
+version: 1
+forge:
+  github:
+    mint_url: https://mint.example.com
+defaults:
+  forge: github
+repos:
+  - acme/api
+`
+	var m Manifest
+	require.NoError(t, yaml.Unmarshal([]byte(input), &m))
+
+	cfg, found := m.ResolveConfig("acme", "api")
+	require.True(t, found)
+	assert.Equal(t, MintModePublic, cfg.MintMode)
+}
+
+func TestResolveConfig_MintModeForgeLevel(t *testing.T) {
+	input := `
+version: 1
+forge:
+  github:
+    mint_url: https://private-mint.example.com
+    mint_mode: private
+defaults:
+  forge: github
+repos:
+  - acme/api
+`
+	var m Manifest
+	require.NoError(t, yaml.Unmarshal([]byte(input), &m))
+
+	cfg, found := m.ResolveConfig("acme", "api")
+	require.True(t, found)
+	assert.Equal(t, MintModePrivate, cfg.MintMode)
+	assert.Equal(t, "https://private-mint.example.com", cfg.MintURL)
+}
+
+func TestResolveConfig_MintModePerRepoOverride(t *testing.T) {
+	input := `
+version: 1
+forge:
+  github:
+    mint_url: https://mint.example.com
+defaults:
+  forge: github
+repos:
+  - acme/inherits
+  - repo: acme/private
+    mint_mode: private
+    mint_url: https://private-mint.example.com
+`
+	var m Manifest
+	require.NoError(t, yaml.Unmarshal([]byte(input), &m))
+
+	t.Run("inherits public default", func(t *testing.T) {
+		cfg, found := m.ResolveConfig("acme", "inherits")
+		require.True(t, found)
+		assert.Equal(t, MintModePublic, cfg.MintMode)
+	})
+
+	t.Run("per-repo private override", func(t *testing.T) {
+		cfg, found := m.ResolveConfig("acme", "private")
+		require.True(t, found)
+		assert.Equal(t, MintModePrivate, cfg.MintMode)
+		assert.Equal(t, "https://private-mint.example.com", cfg.MintURL)
+	})
+}
+
+func TestResolveConfig_PublicModeAutoDefaultsURL(t *testing.T) {
+	m := Manifest{
+		Version:  1,
+		Defaults: DefaultsConfig{Forge: "github"},
+		Repos:    []RepoEntry{{Repo: "acme/api"}},
+	}
+	require.NoError(t, m.Validate())
+
+	cfg, found := m.ResolveConfig("acme", "api")
+	require.True(t, found)
+	assert.Equal(t, MintModePublic, cfg.MintMode)
+	assert.Equal(t, DefaultPublicMintURL, cfg.MintURL)
+}
+
+func TestValidate_MintModeOnNonGitHubRepo(t *testing.T) {
+	m := Manifest{
+		Version: 1,
+		Forge: ForgeSection{GitLab: GitLabForgeInfra{
+			URL: "https://gitlab.example.com",
+		}},
+		Defaults: DefaultsConfig{Forge: "gitlab"},
+		Repos: []RepoEntry{
+			{
+				Repo:     "acme/api",
+				MintMode: NullableString{Set: true, Value: "public"},
+			},
+		},
+	}
+	err := m.Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "mint_mode is only supported for GitHub repos")
+}
+
+func TestValidate_MintURLOnNonGitHubRepo(t *testing.T) {
+	m := Manifest{
+		Version: 1,
+		Forge: ForgeSection{GitLab: GitLabForgeInfra{
+			URL: "https://gitlab.example.com",
+		}},
+		Defaults: DefaultsConfig{Forge: "gitlab"},
+		Repos: []RepoEntry{
+			{
+				Repo:    "acme/api",
+				MintURL: NullableString{Set: true, Value: "https://mint.example.com"},
+			},
+		},
+	}
+	err := m.Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "mint_url is only supported for GitHub repos")
+}
+
+func TestMarshalRoundTrip_MintMode(t *testing.T) {
+	m := Manifest{
+		Version: 1,
+		Forge: ForgeSection{GitHub: GitHubForgeInfra{
+			MintURL:  "https://mint.example.com",
+			MintMode: MintModePrivate,
+		}},
+		Defaults: DefaultsConfig{Forge: "github"},
+		Repos: []RepoEntry{
+			{Repo: "acme/inherits"},
+			{
+				Repo:     "acme/custom",
+				MintMode: NullableString{Set: true, Value: MintModePublic},
+			},
+		},
+	}
+	data, err := m.Marshal()
+	require.NoError(t, err)
+
+	var roundTripped Manifest
+	require.NoError(t, yaml.Unmarshal(data, &roundTripped))
+
+	assert.Equal(t, MintModePrivate, roundTripped.Forge.GitHub.MintMode)
+	require.Len(t, roundTripped.Repos, 2)
+	assert.False(t, roundTripped.Repos[0].MintMode.Set)
+	assert.True(t, roundTripped.Repos[1].MintMode.Set)
+	assert.Equal(t, MintModePublic, roundTripped.Repos[1].MintMode.Value)
 }
 
 func TestIsNumeric(t *testing.T) {

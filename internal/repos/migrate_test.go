@@ -902,7 +902,7 @@ repos:
 	}, newTestClientFactory(fc), prov, nopScaffoldCommit, progressFn)
 
 	require.NoError(t, err)
-	assert.Len(t, warnings, 3, "should warn about non-portable fields and missing region")
+	assert.Len(t, warnings, 3, "should warn about non-portable fields and global region")
 
 	var foundRetries, foundAutoMerge bool
 	for _, w := range warnings {

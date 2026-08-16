@@ -764,16 +764,7 @@ func runReposInstall(ctx context.Context, opts *reposInstallConfig) error {
 				continue
 			}
 
-			// Build WIF config when inference is configured (WIF mode).
-			var wifCfg *botTokenWIFConfig
-			if opts.inferenceProject != "" {
-				wifCfg = &botTokenWIFConfig{
-					GCPClient: gcf.NewLiveGCFClient(opts.inferenceProject),
-					ProjectID: opts.inferenceProject,
-				}
-			}
-
-			_, botErr := setupGitLabBotToken(ctx, fc.Client, glClient, printer, r.Owner, r.Repo, opts.gitlabBotToken, wifCfg)
+			_, botErr := setupGitLabBotToken(ctx, fc.Client, glClient, printer, r.Owner, r.Repo, opts.gitlabBotToken)
 			if botErr != nil {
 				printer.StepWarn(fmt.Sprintf("[%s] Bot token setup failed: %v", repoFullName, botErr))
 				postInstallFailed++
@@ -949,8 +940,7 @@ type reposUninstallConfig struct {
 	uninstallOnly bool
 	gitlabToken   string
 
-	testClient           forge.Client
-	testGCPClientFactory func(projectID string) gcf.GCFClient
+	testClient forge.Client
 }
 
 func newReposUninstallCmd() *cobra.Command {
@@ -1067,36 +1057,6 @@ func runReposUninstall(ctx context.Context, opts *reposUninstallConfig, repoArgs
 			return err
 		}
 
-		// Pre-uninstall: gather GCP project IDs for GitLab WIF repos
-		// so we can delete Secret Manager secrets after teardown. The
-		// FULLSEND_SA variable is deleted during uninstall, so we read
-		// it now.
-		gcpProjectByRepo := make(map[string]string)
-		if !opts.dryRun {
-			for _, repoName := range concreteRepos {
-				parts := strings.SplitN(repoName, "/", 2)
-				if len(parts) != 2 {
-					continue
-				}
-				owner, repo := parts[0], parts[1]
-				rc, ok := manifest.ResolveConfigWithGlobs(owner, repo)
-				if !ok || rc.Forge != repos.ForgeGitLab {
-					continue
-				}
-				fc, fcErr := clients.ConfigFor(repos.ForgeGitLab)
-				if fcErr != nil {
-					continue
-				}
-				sa, found, readErr := fc.Client.GetRepoVariable(ctx, owner, repo, "FULLSEND_SA")
-				if readErr != nil || !found {
-					continue
-				}
-				if projectID := projectIDFromSAEmail(sa); projectID != "" {
-					gcpProjectByRepo[repoName] = projectID
-				}
-			}
-		}
-
 		teardownCfg := repos.UninstallConfig{
 			Manifest:       manifest,
 			Repos:          concreteRepos,
@@ -1125,14 +1085,8 @@ func runReposUninstall(ctx context.Context, opts *reposUninstallConfig, repoArgs
 			}
 		}
 
-		// GitLab post-uninstall: clean up pipeline schedules, bot tokens,
-		// and Secret Manager secrets.
+		// GitLab post-uninstall: clean up pipeline schedules and bot tokens.
 		if !opts.dryRun {
-			newGCPClient := opts.testGCPClientFactory
-			if newGCPClient == nil {
-				newGCPClient = func(pid string) gcf.GCFClient { return gcf.NewLiveGCFClient(pid) }
-			}
-
 			for _, r := range results {
 				if !r.Success {
 					continue
@@ -1158,12 +1112,6 @@ func runReposUninstall(ctx context.Context, opts *reposUninstallConfig, repoArgs
 					printer.StepWarn(fmt.Sprintf("[%s] GitLab client type assertion failed — bot token cleanup skipped", repoFullName))
 				}
 
-				// Best-effort: delete the bot token Secret Manager
-				// secret if we know the GCP project from the pre-
-				// uninstall variable read.
-				if projectID, ok := gcpProjectByRepo[repoFullName]; ok {
-					cleanupGitLabBotTokenSecret(ctx, newGCPClient(projectID), printer, projectID, r.Owner, r.Repo)
-				}
 			}
 		}
 	} else {

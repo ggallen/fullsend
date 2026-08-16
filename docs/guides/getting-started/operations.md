@@ -38,13 +38,11 @@ fullsend repos install -f repos.yaml "$OWNER/$REPO" \
 
 | Key | Storage Type | Description | Example value |
 |-----|-------------|-------------|---------------|
-| `FULLSEND_CREDENTIAL_MODE` | CI/CD variable | Credential retrieval mode | `wif` or `token` |
 | `FULLSEND_GCP_REGION` | CI/CD variable | GCP region for Agent Platform inference | `us-central1` |
 | `FULLSEND_SA` | CI/CD variable | Service account email for WIF impersonation | `fullsend-mint@project.iam.gserviceaccount.com` |
-| `FULLSEND_WIF_PROVIDER` | CI/CD variable | Full WIF provider resource name (WIF mode only) | `projects/123456789/locations/global/...` |
-| `FULLSEND_BOT_TOKEN_SECRET` | CI/CD variable | Secret Manager secret ID for bot PAT (WIF mode only) | `fullsend-bot-token-group--project` |
-| `FULLSEND_GCP_PROJECT_ID` | CI/CD secret | GCP project ID for inference (WIF mode only) | `my-gcp-project` |
-| `FULLSEND_GCP_WIF_PROVIDER` | CI/CD secret | WIF provider resource name (WIF mode only) | `projects/123456789/locations/global/...` |
+| `FULLSEND_WIF_PROVIDER` | CI/CD variable | Full WIF provider resource name | `projects/123456789/locations/global/...` |
+| `FULLSEND_GCP_PROJECT_ID` | CI/CD secret | GCP project ID for inference | `my-gcp-project` |
+| `FULLSEND_GCP_WIF_PROVIDER` | CI/CD secret | WIF provider resource name for inference | `projects/123456789/locations/global/...` |
 
 ## Syncing workflow templates
 

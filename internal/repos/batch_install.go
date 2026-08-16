@@ -107,13 +107,12 @@ func BatchInstall(ctx context.Context, cfg BatchInstallConfig,
 
 	// Phase 1: Parallel discovery — check guard variables.
 	type discoveryResult struct {
-		repo               ResolvedRepo
-		resolved           ResolvedConfig
-		installed          bool
-		secretsExist       bool
-		regionVarExists    bool
-		discoveredCredMode string
-		err                error
+		repo            ResolvedRepo
+		resolved        ResolvedConfig
+		installed       bool
+		secretsExist    bool
+		regionVarExists bool
+		err             error
 	}
 
 	concurrency := cfg.MaxConcurrency
@@ -183,21 +182,11 @@ func BatchInstall(ctx context.Context, cfg BatchInstallConfig,
 						discoveries[idx] = discoveryResult{repo: rr, resolved: resolved, err: regionErr}
 						return
 					}
-					var credMode string
-					credModeVal, credModeExists, credModeErr := fc.Client.GetRepoVariable(ctx, rr.Owner, rr.Repo, "FULLSEND_CREDENTIAL_MODE")
-					if credModeErr != nil {
-						discoveries[idx] = discoveryResult{repo: rr, resolved: resolved, err: credModeErr}
-						return
-					}
-					if credModeExists {
-						credMode = credModeVal
-					}
 					discoveries[idx] = discoveryResult{
-						repo:               rr,
-						resolved:           resolved,
-						secretsExist:       true,
-						regionVarExists:    regionExists,
-						discoveredCredMode: credMode,
+						repo:            rr,
+						resolved:        resolved,
+						secretsExist:    true,
+						regionVarExists: regionExists,
 					}
 					return
 				} else if projExists != wifExists {
@@ -303,28 +292,25 @@ func BatchInstall(ctx context.Context, cfg BatchInstallConfig,
 		}
 	}
 
-	// Per-repo validation: WIF repos without existing secrets require
-	// inference flags. OIDC and token modes skip inference entirely.
-	// When secrets already exist on the repo, inference flags are not
-	// required — the existing secrets are reused.
+	// Per-repo validation: repos without existing secrets require
+	// inference flags. When secrets already exist on the repo,
+	// inference flags are not required — the existing secrets are
+	// reused.
 	var validCandidates []discoveryResult
 	for _, d := range toInstall {
 		fullName := d.repo.Owner + "/" + d.repo.Repo
 
-		entryCredMode := resolveCredentialMode(d.resolved.Forge, d.resolved.CredentialMode, cfg.InferenceProject, d.discoveredCredMode)
-
-		requireInference := !d.secretsExist && entryCredMode == CredModeWIF
-		if requireInference && cfg.InferenceProject == "" {
+		if !d.secretsExist && cfg.InferenceProject == "" {
 			result.Failed = append(result.Failed, InstallResult{
 				Owner: d.repo.Owner,
 				Repo:  d.repo.Repo,
-				Error: fmt.Errorf("credential_mode is 'wif' but --inference-project is not set for %s", fullName),
+				Error: fmt.Errorf("--inference-project is required for %s (inference secrets are always needed)", fullName),
 			})
-			progress(fullName, "validate", "WIF mode requires --inference-project")
+			progress(fullName, "validate", "Inference flags required")
 			continue
 		}
 
-		needsRegion := entryCredMode == CredModeWIF || cfg.InferenceProject != ""
+		needsRegion := cfg.InferenceProject != ""
 		if d.secretsExist && !d.regionVarExists && cfg.InferenceRegion == "" && needsRegion {
 			result.Failed = append(result.Failed, InstallResult{
 				Owner: d.repo.Owner,
@@ -424,22 +410,20 @@ func BatchInstall(ctx context.Context, cfg BatchInstallConfig,
 			}
 
 			installCfg := InstallConfig{
-				Owner:              dr.repo.Owner,
-				Repo:               dr.repo.Repo,
-				Forge:              dr.resolved.Forge,
-				Roles:              roles,
-				MintURL:            dr.resolved.MintURL,
-				InferenceProject:   cfg.InferenceProject,
-				InferenceRegion:    cfg.InferenceRegion,
-				UpstreamRef:        ref,
-				UpstreamTag:        tag,
-				SkipGuardCheck:     true,
-				WIFProvider:        wifProvider,
-				RunnerTags:         cfg.Manifest.Forge.GitLab.RunnerTags,
-				Direct:             cfg.Direct,
-				ReuseSecrets:       dr.secretsExist,
-				CredentialMode:     dr.resolved.CredentialMode,
-				DiscoveredCredMode: dr.discoveredCredMode,
+				Owner:            dr.repo.Owner,
+				Repo:             dr.repo.Repo,
+				Forge:            dr.resolved.Forge,
+				Roles:            roles,
+				MintURL:          dr.resolved.MintURL,
+				InferenceProject: cfg.InferenceProject,
+				InferenceRegion:  cfg.InferenceRegion,
+				UpstreamRef:      ref,
+				UpstreamTag:      tag,
+				SkipGuardCheck:   true,
+				WIFProvider:      wifProvider,
+				RunnerTags:       cfg.Manifest.Forge.GitLab.RunnerTags,
+				Direct:           cfg.Direct,
+				ReuseSecrets:     dr.secretsExist,
 			}
 
 			// When the manifest pins to a different version than the

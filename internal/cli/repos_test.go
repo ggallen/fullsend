@@ -9,7 +9,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/fullsend-ai/fullsend/internal/dispatch/gcf"
 	"github.com/fullsend-ai/fullsend/internal/forge"
 	"github.com/fullsend-ai/fullsend/internal/repos"
 	"github.com/fullsend-ai/fullsend/internal/ui"
@@ -1220,7 +1219,6 @@ func TestRunReposInstall_BootstrapsManifest(t *testing.T) {
 		testClient:  fc,
 	})
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "mint_url")
 
 	m, loadErr := repos.LoadManifest(context.Background(), manifestPath)
 	require.NoError(t, loadErr)
@@ -1760,38 +1758,4 @@ repos:
 	err := cmd.Execute()
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to uninstall")
-}
-
-func TestRunReposUninstall_GitLabWIFSecretPreRead(t *testing.T) {
-	m := `version: 1
-forge:
-  github:
-    mint_url: https://mint.example.com
-  gitlab:
-    url: https://gitlab.example.com
-defaults:
-  forge: gitlab
-repos:
-  - acme/repo
-`
-	manifestPath := writeTestManifest(t, m)
-	fc := newInstalledFakeClientCLI("acme/repo")
-	fc.VariableValues["acme/repo/FULLSEND_SA"] = "fullsend-mint@my-gcp-project.iam.gserviceaccount.com"
-
-	fakeGCP := gcf.NewFakeGCFClient()
-	err := runReposUninstall(context.Background(), &reposUninstallConfig{
-		manifest:    manifestPath,
-		yes:         true,
-		concurrency: 4,
-		testClient:  fc,
-		testGCPClientFactory: func(projectID string) gcf.GCFClient {
-			require.Equal(t, "my-gcp-project", projectID)
-			return fakeGCP
-		},
-	}, []string{"acme/repo"})
-	require.NoError(t, err)
-
-	deleted := gcf.DeletedSecretIDs(fakeGCP)
-	require.Len(t, deleted, 1)
-	assert.Equal(t, "fullsend-bot-token-acme--repo", deleted[0])
 }
