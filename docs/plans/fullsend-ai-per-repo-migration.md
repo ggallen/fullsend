@@ -17,13 +17,12 @@ For the targeted repo, `repos migrate` performs these steps:
 2. **Checks installation status** — looks for `FULLSEND_PER_REPO_INSTALL` guard variable; skips repos already per-repo
 3. **Warns about non-portable fields** — `max_implementation_retries` and `auto_merge` have no per-repo equivalent and will be lost
 4. **Provisions WIF** — checks if GCP Workload Identity Federation is already set up for the repo; provisions it if not
-5. **Builds per-repo config** — carries over portable org config fields: roles, allowed_remote_resources, agents, create_issues, kill_switch, runtime
-6. **Commits scaffold files** — writes `.github/workflows/fullsend.yaml` and `.fullsend/config.yaml` directly to the default branch (with `--direct`)
-7. **Writes repo-level variables** — `FULLSEND_MINT_URL` (hardcoded to `https://mint.fullsend.sh`), `FULLSEND_PER_REPO_INSTALL`, `FULLSEND_GCP_REGION`
-8. **Writes repo-level secrets** — `FULLSEND_GCP_PROJECT_ID`, `FULLSEND_GCP_WIF_PROVIDER`
-9. **Registers per-repo WIF with mint** — adds the repo to the mint service's `PER_REPO_WIF_REPOS` (serialized to avoid race conditions)
-10. **Unenrolls from per-org config** — sets `enabled: false` for the repo in `.fullsend/config.yaml` and commits the update
-11. **Generates `repos.yaml` manifest** — includes the migrated repo with per-repo overrides where values differ from defaults
+5. **Builds per-repo config** — carries over portable org config fields: roles, allowed_remote_resources, agents, create_issues, kill_switch, runtime, status_notifications
+6. **Writes repo-level variables** — `FULLSEND_MINT_URL` (hardcoded to `https://mint.fullsend.sh`), `FULLSEND_PER_REPO_INSTALL`, `FULLSEND_GCP_REGION`
+7. **Writes repo-level secrets** — `FULLSEND_GCP_PROJECT_ID`, `FULLSEND_GCP_WIF_PROVIDER`
+8. **Commits scaffold files** — writes `.github/workflows/fullsend.yaml` and `.fullsend/config.yaml` directly to the default branch (with `--direct`)
+9. **Unenrolls from per-org config** — sets `enabled: false` for the repo in `.fullsend/config.yaml` and commits the update
+10. **Merges into `repos.yaml` manifest** — adds the migrated repo (with per-repo overrides where values differ from defaults) into any existing `repos.yaml`, supporting incremental `--repo` migrations
 
 It does **not**: delete the `.fullsend` repo, remove org-level variables/secrets, remove old workflow files from `.fullsend`, or touch GitHub Apps.
 
@@ -60,7 +59,7 @@ Order:
 
 ## Phase 2: Unenroll org from mint
 
-Remove the org from the mint's `ALLOWED_ORGS` and WIF provider condition to block per-org token generation. Per-repo WIF registrations (added by migrate in step 9) are unaffected — they use `PER_REPO_WIF_REPOS`, a separate env var.
+Remove the org from the mint's `ALLOWED_ORGS` and WIF provider condition to block per-org token generation. Per-repo WIF registrations are unaffected — they use `PER_REPO_WIF_REPOS`, a separate env var.
 
 ```bash
 fullsend mint unenroll fullsend-ai --project <GCP_PROJECT_ID>
