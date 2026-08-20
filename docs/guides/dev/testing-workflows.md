@@ -10,12 +10,13 @@ There are independent version reference inputs that control different parts of t
 |-------|----------|-----------|
 | `@<ref>` on `uses:` | Which reusable workflow YAML runs | The `uses:` line in the caller workflow |
 | `fullsend_version` | Which fullsend CLI binary is installed | Passed as a `with:` input |
+| `upstream_ref` | Which version of agent harnesses is fetched from `fullsend-ai/agents` at runtime | Passed as a `with:` input to `reusable-dispatch.yml` (per-repo shim only) |
 
 When no release exists for `fullsend_version`, `action.yml` falls back to cloning
 and building from source at that ref (see the `install-method=source` path).
 
-If `uses:` and `fullsend_version` diverge, the workflows/agents and
-CLI diverge, potentially causing mismatch in behavior and failures.
+If any of these three inputs diverge, the workflows, CLI, and agent
+harnesses diverge, potentially causing mismatch in behavior and failures.
 
 ## Vendored installs (recommended for PR testing)
 

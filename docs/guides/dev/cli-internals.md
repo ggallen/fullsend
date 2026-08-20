@@ -101,6 +101,11 @@ fullsend
 │   ├── --status-repo <owner/repo>           #   Repository for status comments
 │   ├── --status-number <int>                #   Issue/PR number for status comments
 │   └── --mint-url <url>                     #   Mint service URL for on-demand status tokens
+│                                            #   Env: FULLSEND_UPSTREAM_REF — version ref (tag,
+│                                            #   branch, or SHA) used to resolve agent harnesses
+│                                            #   from fullsend-ai/agents unless overridden by the
+│                                            #   agents map in config.yaml; set by the per-repo
+│                                            #   shim at install time
 ├── fetch-skill      <url>                    # Fetch a skill at runtime (in-sandbox)
 ├── scan                                     # Run security scanner on input/output
 │   ├── input                                # Scan event payload for prompt injection

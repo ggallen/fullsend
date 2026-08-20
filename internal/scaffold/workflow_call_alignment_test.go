@@ -827,6 +827,41 @@ func TestShimPerRepoProjectNumberPassthrough(t *testing.T) {
 		"per-repo shim project_number must read from vars.FULLSEND_PROJECT_NUMBER")
 }
 
+// TestReusableDispatchUpstreamRefInput validates that reusable-dispatch.yml
+// declares upstream_ref as an optional input and threads FULLSEND_UPSTREAM_REF
+// to all agent run steps (#6386).
+func TestReusableDispatchUpstreamRefInput(t *testing.T) {
+	content, err := os.ReadFile(filepath.Join("..", "..", ".github", "workflows", "reusable-dispatch.yml"))
+	require.NoError(t, err)
+
+	var wf reusableWorkflow
+	require.NoError(t, yaml.Unmarshal(content, &wf))
+
+	input, ok := wf.On.WorkflowCall.Inputs["upstream_ref"]
+	require.True(t, ok, "reusable-dispatch.yml should declare upstream_ref input")
+	assert.False(t, input.Required, "upstream_ref should be optional")
+
+	s := string(content)
+	stages := []string{"triage", "code", "review", "fix", "retro", "prioritize", "harness"}
+	for _, stage := range stages {
+		t.Run(stage, func(t *testing.T) {
+			marker := fmt.Sprintf("Run %s agent", stage)
+			section := extractStepSection(t, s, marker)
+			assert.Contains(t, section, "FULLSEND_UPSTREAM_REF: ${{ inputs.upstream_ref }}",
+				"%s agent step must set FULLSEND_UPSTREAM_REF from inputs.upstream_ref", stage)
+		})
+	}
+}
+
+// TestShimPerRepoUpstreamRefPassthrough validates that the per-repo shim
+// template passes upstream_ref to reusable-dispatch.yml (#6386).
+func TestShimPerRepoUpstreamRefPassthrough(t *testing.T) {
+	content := loadScaffoldFile("templates/shim-per-repo.yaml")(t)
+	s := string(content)
+	assert.Contains(t, s, "upstream_ref: __UPSTREAM_TAG__",
+		"per-repo shim must pass upstream_ref placeholder to reusable-dispatch.yml")
+}
+
 // TestShimLabeledEventFiltering validates that shim workflows use the ready-
 // prefix filter at the if: guard level and label-aware concurrency keys so
 // routing labels don't cancel each other (#2452).

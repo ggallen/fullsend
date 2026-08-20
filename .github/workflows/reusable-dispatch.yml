@@ -59,6 +59,11 @@ on:
         type: string
         required: false
         default: "ubuntu-24.04"
+      upstream_ref:
+        description: "Version tag for agent harness fallback (e.g. v0.85.0). Set by the per-repo shim at install time. When empty, the CLI falls back to its built-in default."
+        type: string
+        required: false
+        default: ""
     secrets:
       FULLSEND_GCP_WIF_PROVIDER:
         required: false
@@ -645,6 +650,7 @@ jobs:
       - name: Run triage agent
         uses: ./.defaults/
         env:
+          FULLSEND_UPSTREAM_REF: ${{ inputs.upstream_ref }}
           GITHUB_ISSUE_URL: ${{ fromJSON(needs.route.outputs.event_payload).issue.html_url }}
           REPO_FULL_NAME: ${{ github.repository }}
           OTEL_EXPORTER_OTLP_ENDPOINT: ${{ vars.OTEL_EXPORTER_OTLP_ENDPOINT }}
@@ -760,6 +766,7 @@ jobs:
       - name: Run code agent
         uses: ./.defaults/
         env:
+          FULLSEND_UPSTREAM_REF: ${{ inputs.upstream_ref }}
           GITHUB_ISSUE_URL: ${{ fromJSON(needs.route.outputs.event_payload).issue.html_url }}
           ISSUE_NUMBER: ${{ fromJSON(needs.route.outputs.event_payload).issue.number }}
           # Reaches the harness pre-script inside fullsend run, which reads it
@@ -882,6 +889,7 @@ jobs:
       - name: Run review agent
         uses: ./.defaults/
         env:
+          FULLSEND_UPSTREAM_REF: ${{ inputs.upstream_ref }}
           GITHUB_ISSUE_URL: ${{ fromJSON(needs.route.outputs.event_payload).issue.html_url }}
           GITHUB_PR_URL: ${{ fromJSON(needs.route.outputs.event_payload).pull_request.html_url || fromJSON(needs.route.outputs.event_payload).issue.html_url }}
           REPO_FULL_NAME: ${{ github.repository }}
@@ -1148,6 +1156,7 @@ jobs:
       - name: Run fix agent
         uses: ./.defaults/
         env:
+          FULLSEND_UPSTREAM_REF: ${{ inputs.upstream_ref }}
           PR_NUMBER: ${{ steps.context.outputs.pr_number }}
           REPO_FULL_NAME: ${{ github.repository }}
           TARGET_BRANCH: ${{ steps.context.outputs.base_ref }}
@@ -1251,6 +1260,7 @@ jobs:
       - name: Run retro agent
         uses: ./.defaults/
         env:
+          FULLSEND_UPSTREAM_REF: ${{ inputs.upstream_ref }}
           ORIGINATING_URL: ${{ fromJSON(needs.route.outputs.event_payload).pull_request.html_url || fromJSON(needs.route.outputs.event_payload).issue.html_url }}
           RETRO_COMMENT: ${{ fromJSON(needs.route.outputs.event_payload).comment.body || '' }}
           REPO_FULL_NAME: ${{ github.repository }}
@@ -1337,6 +1347,7 @@ jobs:
       - name: Run prioritize agent
         uses: ./.defaults/
         env:
+          FULLSEND_UPSTREAM_REF: ${{ inputs.upstream_ref }}
           GITHUB_ISSUE_URL: ${{ fromJSON(needs.route.outputs.event_payload).issue.html_url }}
           REPO_FULL_NAME: ${{ github.repository }}
           OTEL_EXPORTER_OTLP_ENDPOINT: ${{ vars.OTEL_EXPORTER_OTLP_ENDPOINT }}
@@ -1651,6 +1662,7 @@ jobs:
       - name: Run harness agent
         uses: ./.defaults/
         env:
+          FULLSEND_UPSTREAM_REF: ${{ inputs.upstream_ref }}
           GITHUB_ISSUE_URL: ${{ steps.dispatch-env.outputs.issue_url }}
           REPO_FULL_NAME: ${{ matrix.source_repo }}
           OTEL_EXPORTER_OTLP_ENDPOINT: ${{ vars.OTEL_EXPORTER_OTLP_ENDPOINT }}

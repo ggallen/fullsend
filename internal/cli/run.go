@@ -63,8 +63,8 @@ const (
 
 	// Default agents repository for runtime fallback when an agent is not
 	// registered in config. The binary resolves the commit SHA for the
-	// floating version tag (config.DefaultUpstreamRef) and fetches the
-	// harness dynamically.
+	// version ref returned by agentsUpstreamRef() and fetches the harness
+	// dynamically. See agentsUpstreamRef for the priority chain.
 	defaultAgentsRepoOwner = "fullsend-ai"
 	defaultAgentsRepoName  = "agents"
 )
@@ -3804,10 +3804,10 @@ func findConfigAgentEntry(agents []config.AgentEntry, name string) *config.Agent
 }
 
 // tryAgentsRepoFallback attempts to resolve an agent from the default agents
-// repository (fullsend-ai/agents) by fetching the latest harness from the
-// main branch. This is a transitional mechanism to support the extraction of
-// first-party agents into a separate repository (fullsend-ai/agents) without
-// requiring config changes from existing users.
+// repository (fullsend-ai/agents) at the ref returned by agentsUpstreamRef().
+// This is a transitional mechanism to support the extraction of first-party
+// agents into a separate repository (fullsend-ai/agents) without requiring
+// config changes from existing users.
 //
 // Returns (path, deps, true) on success, or ("", nil, false) if the fallback
 // should be skipped (offline, no forge client, agent not known, not allowlisted, etc.).
@@ -3826,25 +3826,32 @@ func tryAgentsRepoFallback(ctx context.Context, agentName string, forgeClient fo
 
 	allowlist := composeOpts.OrgAllowlist
 
-	tagRef := "tags/" + config.DefaultUpstreamRef
-	tagSHA, err := forgeClient.GetRef(ctx, defaultAgentsRepoOwner, defaultAgentsRepoName, tagRef)
-	if err != nil {
-		printer.StepWarn(fmt.Sprintf("Could not resolve %s/%s@%s: %v", defaultAgentsRepoOwner, defaultAgentsRepoName, config.DefaultUpstreamRef, err))
-		return "", nil, false
-	}
-	if !commitSHAPattern.MatchString(tagSHA) {
-		printer.StepWarn(fmt.Sprintf("Invalid SHA from %s/%s@%s: %q", defaultAgentsRepoOwner, defaultAgentsRepoName, config.DefaultUpstreamRef, tagSHA))
-		return "", nil, false
+	upstreamRef, gitRef := agentsUpstreamRef()
+
+	var resolvedSHA string
+	if commitSHAPattern.MatchString(gitRef) {
+		resolvedSHA = gitRef
+	} else {
+		var err error
+		resolvedSHA, err = forgeClient.GetRef(ctx, defaultAgentsRepoOwner, defaultAgentsRepoName, gitRef)
+		if err != nil {
+			printer.StepWarn(fmt.Sprintf("Could not resolve %s/%s@%s: %v", defaultAgentsRepoOwner, defaultAgentsRepoName, upstreamRef, err))
+			return "", nil, false
+		}
+		if !commitSHAPattern.MatchString(resolvedSHA) {
+			printer.StepWarn(fmt.Sprintf("Invalid SHA from %s/%s@%s: %q", defaultAgentsRepoOwner, defaultAgentsRepoName, upstreamRef, resolvedSHA))
+			return "", nil, false
+		}
 	}
 
-	rawURL := defaultAgentsRepoURLPrefix + tagSHA + "/harness/" + normalizedName + ".yaml"
+	rawURL := defaultAgentsRepoURLPrefix + resolvedSHA + "/harness/" + normalizedName + ".yaml"
 
 	if harness.MatchingAllowedPrefixInList(rawURL, allowlist) == "" {
 		printer.StepWarn(fmt.Sprintf("Agents repo fallback skipped for %s: URL not in allowed_remote_resources", agentName))
 		return "", nil, false
 	}
 
-	shortSHA := tagSHA
+	shortSHA := resolvedSHA
 	if len(shortSHA) > 12 {
 		shortSHA = shortSHA[:12]
 	}
@@ -3897,8 +3904,46 @@ func tryAgentsRepoFallback(ctx context.Context, agentName string, forgeClient fo
 		Type:      "file",
 	}
 
-	printer.StepDone(fmt.Sprintf("Agent %s resolved from %s/%s@%s", agentName, defaultAgentsRepoOwner, defaultAgentsRepoName, config.DefaultUpstreamRef))
+	printer.StepDone(fmt.Sprintf("Agent %s resolved from %s/%s@%s", agentName, defaultAgentsRepoOwner, defaultAgentsRepoName, upstreamRef))
 	return localPath, []harness.Dependency{dep}, true
+}
+
+// agentsUpstreamRef returns the version ref and its fully-qualified git
+// ref for fetching agent harnesses from fullsend-ai/agents. Priority:
+//  1. FULLSEND_UPSTREAM_REF env var (set by reusable-dispatch from the
+//     shim's upstream_ref input, pinning agents to the installed version)
+//  2. "main" for dev builds (version == "dev") → heads/main
+//  3. config.DefaultUpstreamRef ("v0") for release builds → tags/v0
+//
+// The env var value may be a tag (v0.85.0), branch (main/master), or
+// raw SHA. Other branch names require the heads/ prefix (e.g. heads/develop).
+func agentsUpstreamRef() (displayRef, gitRef string) {
+	if v := os.Getenv("FULLSEND_UPSTREAM_REF"); v != "" {
+		return v, toGitRef(v)
+	}
+	if version == "dev" {
+		return "main", "heads/main"
+	}
+	return config.DefaultUpstreamRef, "tags/" + config.DefaultUpstreamRef
+}
+
+// toGitRef converts a user-facing ref string to a fully-qualified git ref
+// path suitable for the GitHub refs API. Raw SHAs pass through unchanged;
+// already-qualified refs (heads/*, tags/*) are preserved after stripping
+// any refs/ prefix; main and master are mapped to heads/; all other bare
+// names are treated as tags.
+func toGitRef(ref string) string {
+	if commitSHAPattern.MatchString(ref) {
+		return ref
+	}
+	ref = strings.TrimPrefix(ref, "refs/")
+	if strings.HasPrefix(ref, "heads/") || strings.HasPrefix(ref, "tags/") {
+		return ref
+	}
+	if ref == "main" || ref == "master" {
+		return "heads/" + ref
+	}
+	return "tags/" + ref
 }
 
 // containedLocalPath resolves a relative source path against baseDir and

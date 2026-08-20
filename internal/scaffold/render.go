@@ -50,6 +50,7 @@ func RenderTemplate(path string, content []byte, opts RenderOptions) ([]byte, er
 		out = strings.ReplaceAll(out, "__REUSABLE_WORKFLOW__", reusableWorkflowUses(stage, opts))
 	case path == "templates/shim-per-repo.yaml":
 		out = strings.ReplaceAll(out, "__REUSABLE_DISPATCH__", reusableDispatchUses(opts))
+		out = strings.ReplaceAll(out, "__UPSTREAM_TAG__", opts.UpstreamTag)
 	}
 
 	out = strings.ReplaceAll(out, "__FULLSEND_AI_REF__", resolvedRefWithComment(opts))

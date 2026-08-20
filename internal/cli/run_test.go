@@ -1232,6 +1232,7 @@ func TestTryAgentsRepoFallback_NilClient(t *testing.T) {
 }
 
 func TestTryAgentsRepoFallback_GetRefError(t *testing.T) {
+	t.Setenv("FULLSEND_UPSTREAM_REF", "")
 	fakeClient := forge.NewFakeClient()
 	fakeClient.Errors["GetRef"] = fmt.Errorf("rate limited")
 	printer := ui.New(io.Discard)
@@ -1240,8 +1241,9 @@ func TestTryAgentsRepoFallback_GetRefError(t *testing.T) {
 }
 
 func TestTryAgentsRepoFallback_NotAllowlisted(t *testing.T) {
+	t.Setenv("FULLSEND_UPSTREAM_REF", "")
 	fakeClient := forge.NewFakeClient()
-	fakeClient.Refs["fullsend-ai/agents/tags/v0"] = "abc123def456789012345678901234567890abcd"
+	fakeClient.Refs["fullsend-ai/agents/heads/main"] = "abc123def456789012345678901234567890abcd"
 	printer := ui.New(io.Discard)
 	opts := harness.ComposeOpts{
 		OrgAllowlist: []string{"https://example.com/"},
@@ -1251,8 +1253,9 @@ func TestTryAgentsRepoFallback_NotAllowlisted(t *testing.T) {
 }
 
 func TestTryAgentsRepoFallback_ExplicitlyEmptyAllowlist(t *testing.T) {
+	t.Setenv("FULLSEND_UPSTREAM_REF", "")
 	fakeClient := forge.NewFakeClient()
-	fakeClient.Refs["fullsend-ai/agents/tags/v0"] = "abc123def456789012345678901234567890abcd"
+	fakeClient.Refs["fullsend-ai/agents/heads/main"] = "abc123def456789012345678901234567890abcd"
 	printer := ui.New(io.Discard)
 	opts := harness.ComposeOpts{
 		OrgAllowlist: []string{},
@@ -1262,8 +1265,9 @@ func TestTryAgentsRepoFallback_ExplicitlyEmptyAllowlist(t *testing.T) {
 }
 
 func TestTryAgentsRepoFallback_CaseNormalization(t *testing.T) {
+	t.Setenv("FULLSEND_UPSTREAM_REF", "")
 	fakeClient := forge.NewFakeClient()
-	fakeClient.Refs["fullsend-ai/agents/tags/v0"] = "abc123def456789012345678901234567890abcd"
+	fakeClient.Refs["fullsend-ai/agents/heads/main"] = "abc123def456789012345678901234567890abcd"
 	printer := ui.New(io.Discard)
 
 	// "Triage" should pass the known-agent check but would have caused a 404
@@ -1275,8 +1279,9 @@ func TestTryAgentsRepoFallback_CaseNormalization(t *testing.T) {
 }
 
 func TestTryAgentsRepoFallback_ShortSHA(t *testing.T) {
+	t.Setenv("FULLSEND_UPSTREAM_REF", "")
 	fakeClient := forge.NewFakeClient()
-	fakeClient.Refs["fullsend-ai/agents/tags/v0"] = "abc"
+	fakeClient.Refs["fullsend-ai/agents/heads/main"] = "abc"
 	printer := ui.New(io.Discard)
 
 	// Short SHA fails hex validation — exercises both validation and bounds guard.
@@ -1285,8 +1290,9 @@ func TestTryAgentsRepoFallback_ShortSHA(t *testing.T) {
 }
 
 func TestTryAgentsRepoFallback_InvalidSHA(t *testing.T) {
+	t.Setenv("FULLSEND_UPSTREAM_REF", "")
 	fakeClient := forge.NewFakeClient()
-	fakeClient.Refs["fullsend-ai/agents/tags/v0"] = "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ"
+	fakeClient.Refs["fullsend-ai/agents/heads/main"] = "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ"
 	printer := ui.New(io.Discard)
 
 	// Non-hex characters should be rejected by SHA validation.
@@ -1308,6 +1314,7 @@ func TestTryAgentsRepoFallback_AllKnownAgents(t *testing.T) {
 }
 
 func TestTryAgentsRepoFallback_SuccessPath(t *testing.T) {
+	t.Setenv("FULLSEND_UPSTREAM_REF", "")
 	harnessContent := []byte("agent: agents/triage.md\nrole: test\n")
 	fakeSHA := "abcdef1234567890abcdef1234567890abcdef12"
 
@@ -1336,7 +1343,7 @@ func TestTryAgentsRepoFallback_SuccessPath(t *testing.T) {
 	workDir := t.TempDir()
 
 	fakeClient := forge.NewFakeClient()
-	fakeClient.Refs["fullsend-ai/agents/tags/v0"] = fakeSHA
+	fakeClient.Refs["fullsend-ai/agents/heads/main"] = fakeSHA
 
 	printer := ui.New(io.Discard)
 	opts := harness.ComposeOpts{
@@ -1355,6 +1362,7 @@ func TestTryAgentsRepoFallback_SuccessPath(t *testing.T) {
 }
 
 func TestTryAgentsRepoFallback_AuditLog(t *testing.T) {
+	t.Setenv("FULLSEND_UPSTREAM_REF", "")
 	harnessContent := []byte("agent: agents/triage.md\nrole: test\n")
 	fakeSHA := "abcdef1234567890abcdef1234567890abcdef12"
 
@@ -1384,7 +1392,7 @@ func TestTryAgentsRepoFallback_AuditLog(t *testing.T) {
 	auditLog := filepath.Join(workDir, "audit.jsonl")
 
 	fakeClient := forge.NewFakeClient()
-	fakeClient.Refs["fullsend-ai/agents/tags/v0"] = fakeSHA
+	fakeClient.Refs["fullsend-ai/agents/heads/main"] = fakeSHA
 
 	printer := ui.New(io.Discard)
 	opts := harness.ComposeOpts{
@@ -1406,6 +1414,7 @@ func TestTryAgentsRepoFallback_AuditLog(t *testing.T) {
 }
 
 func TestTryAgentsRepoFallback_CachePutFailure(t *testing.T) {
+	t.Setenv("FULLSEND_UPSTREAM_REF", "")
 	harnessContent := []byte("agent: agents/triage.md\nrole: test\n")
 	fakeSHA := "abcdef1234567890abcdef1234567890abcdef12"
 
@@ -1432,7 +1441,7 @@ func TestTryAgentsRepoFallback_CachePutFailure(t *testing.T) {
 	t.Cleanup(func() { defaultAgentsRepoURLPrefix = orig })
 
 	fakeClient := forge.NewFakeClient()
-	fakeClient.Refs["fullsend-ai/agents/tags/v0"] = fakeSHA
+	fakeClient.Refs["fullsend-ai/agents/heads/main"] = fakeSHA
 
 	printer := ui.New(io.Discard)
 	opts := harness.ComposeOpts{
@@ -1446,6 +1455,7 @@ func TestTryAgentsRepoFallback_CachePutFailure(t *testing.T) {
 }
 
 func TestTryAgentsRepoFallback_FetchURLError(t *testing.T) {
+	t.Setenv("FULLSEND_UPSTREAM_REF", "")
 	fakeSHA := "abcdef1234567890abcdef1234567890abcdef12"
 
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -1465,7 +1475,7 @@ func TestTryAgentsRepoFallback_FetchURLError(t *testing.T) {
 	t.Cleanup(func() { defaultAgentsRepoURLPrefix = orig })
 
 	fakeClient := forge.NewFakeClient()
-	fakeClient.Refs["fullsend-ai/agents/tags/v0"] = fakeSHA
+	fakeClient.Refs["fullsend-ai/agents/heads/main"] = fakeSHA
 
 	printer := ui.New(io.Discard)
 	opts := harness.ComposeOpts{
@@ -1476,6 +1486,141 @@ func TestTryAgentsRepoFallback_FetchURLError(t *testing.T) {
 
 	_, _, ok := tryAgentsRepoFallback(context.Background(), "triage", fakeClient, opts, printer)
 	assert.False(t, ok)
+}
+
+func TestTryAgentsRepoFallback_RespectsUpstreamRefEnv(t *testing.T) {
+	t.Setenv("FULLSEND_UPSTREAM_REF", "v0.85.0")
+
+	harnessContent := []byte("agent: agents/triage.md\nrole: test\n")
+	fakeSHA := "abcdef1234567890abcdef1234567890abcdef12"
+
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		expectedPath := "/" + fakeSHA + "/harness/triage.yaml"
+		if r.URL.Path == expectedPath {
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write(harnessContent)
+		} else {
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	t.Cleanup(srv.Close)
+
+	hostPort := strings.TrimPrefix(srv.URL, "https://")
+	hostname, port, _ := net.SplitHostPort(hostPort)
+
+	tlsCfg := srv.TLS.Clone()
+	tlsCfg.InsecureSkipVerify = true
+	policy := fetch.NewTestPolicy(tlsCfg, []string{hostname}, []string{port})
+
+	orig := defaultAgentsRepoURLPrefix
+	defaultAgentsRepoURLPrefix = srv.URL + "/"
+	t.Cleanup(func() { defaultAgentsRepoURLPrefix = orig })
+
+	// Register ONLY tags/v0.85.0 (the env var ref). The dev default
+	// (heads/main) is NOT registered, so a successful fetch proves
+	// the env var controlled ref resolution.
+	fakeClient := forge.NewFakeClient()
+	fakeClient.Refs["fullsend-ai/agents/tags/v0.85.0"] = fakeSHA
+
+	printer := ui.New(io.Discard)
+	opts := harness.ComposeOpts{
+		WorkspaceRoot: t.TempDir(),
+		FetchPolicy:   policy,
+		OrgAllowlist:  []string{srv.URL + "/"},
+	}
+
+	path, deps, ok := tryAgentsRepoFallback(context.Background(), "triage", fakeClient, opts, printer)
+	require.True(t, ok, "expected fallback to succeed with env-var ref")
+	assert.NotEmpty(t, path)
+	assert.Len(t, deps, 1)
+	assert.Contains(t, deps[0].URL, fakeSHA)
+
+	// A client with only heads/main fails at GetRef because the env var
+	// forces lookup of tags/v0.85.0 which is not registered here.
+	defaultClient := forge.NewFakeClient()
+	defaultClient.Refs["fullsend-ai/agents/heads/main"] = fakeSHA
+	_, _, ok2 := tryAgentsRepoFallback(context.Background(), "triage", defaultClient, opts, printer)
+	assert.False(t, ok2, "should fail when env-var ref is not registered")
+}
+
+func TestTryAgentsRepoFallback_DefaultsToMainForDevBuilds(t *testing.T) {
+	t.Setenv("FULLSEND_UPSTREAM_REF", "")
+
+	fakeClient := forge.NewFakeClient()
+	// In test mode version == "dev", so agentsUpstreamRef returns heads/main.
+	fakeClient.Refs["fullsend-ai/agents/heads/main"] = "abcdef1234567890abcdef1234567890abcdef12"
+	printer := ui.New(io.Discard)
+
+	// GetRef should succeed for heads/main. The fetch will fail (no
+	// HTTP server), but we verify the ref lookup used "heads/main".
+	_, _, ok := tryAgentsRepoFallback(context.Background(), "triage", fakeClient, harness.ComposeOpts{}, printer)
+	assert.False(t, ok)
+
+	// Confirm that tags/main is NOT tried (main is a branch, not a tag).
+	fakeClient2 := forge.NewFakeClient()
+	fakeClient2.Refs["fullsend-ai/agents/tags/main"] = "abcdef1234567890abcdef1234567890abcdef12"
+	_, _, ok2 := tryAgentsRepoFallback(context.Background(), "triage", fakeClient2, harness.ComposeOpts{}, printer)
+	assert.False(t, ok2)
+}
+
+func TestAgentsUpstreamRef_EnvVarTakesPrecedence(t *testing.T) {
+	t.Setenv("FULLSEND_UPSTREAM_REF", "v0.85.0")
+	display, gitRef := agentsUpstreamRef()
+	assert.Equal(t, "v0.85.0", display)
+	assert.Equal(t, "tags/v0.85.0", gitRef)
+}
+
+func TestAgentsUpstreamRef_EnvVarBranch(t *testing.T) {
+	t.Setenv("FULLSEND_UPSTREAM_REF", "main")
+	display, gitRef := agentsUpstreamRef()
+	assert.Equal(t, "main", display)
+	assert.Equal(t, "heads/main", gitRef)
+}
+
+func TestAgentsUpstreamRef_EnvVarSHA(t *testing.T) {
+	sha := "abcdef1234567890abcdef1234567890abcdef12"
+	t.Setenv("FULLSEND_UPSTREAM_REF", sha)
+	display, gitRef := agentsUpstreamRef()
+	assert.Equal(t, sha, display)
+	assert.Equal(t, sha, gitRef)
+}
+
+func TestAgentsUpstreamRef_DevBuildDefaultsToMain(t *testing.T) {
+	t.Setenv("FULLSEND_UPSTREAM_REF", "")
+	display, gitRef := agentsUpstreamRef()
+	assert.Equal(t, "main", display)
+	assert.Equal(t, "heads/main", gitRef)
+}
+
+func TestAgentsUpstreamRef_ReleaseBuildDefaultsToV0(t *testing.T) {
+	t.Setenv("FULLSEND_UPSTREAM_REF", "")
+	origVersion := version
+	version = "0.85.0"
+	t.Cleanup(func() { version = origVersion })
+	display, gitRef := agentsUpstreamRef()
+	assert.Equal(t, config.DefaultUpstreamRef, display)
+	assert.Equal(t, "tags/"+config.DefaultUpstreamRef, gitRef)
+}
+
+func TestToGitRef(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"abcdef1234567890abcdef1234567890abcdef12", "abcdef1234567890abcdef1234567890abcdef12"},
+		{"main", "heads/main"},
+		{"master", "heads/master"},
+		{"v0.85.0", "tags/v0.85.0"},
+		{"v0", "tags/v0"},
+		{"refs/tags/v1", "tags/v1"},
+		{"refs/heads/main", "heads/main"},
+		{"heads/dev", "heads/dev"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			assert.Equal(t, tt.want, toGitRef(tt.input))
+		})
+	}
 }
 
 func TestApplySandboxImageOverride_Applied(t *testing.T) {

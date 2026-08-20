@@ -106,6 +106,7 @@ func assertFreeOfRenderPlaceholders(t *testing.T, out string) {
 		"__REUSABLE_WORKFLOW__",
 		"__REUSABLE_DISPATCH__",
 		"__UPSTREAM_REF__",
+		"__UPSTREAM_TAG__",
 		"__DISTRIBUTION_MODE__",
 		"__FULLSEND_AI_REF__",
 		"__GH_RUNNER__",
@@ -167,8 +168,24 @@ func TestRenderPerRepoShimPinnedSHA(t *testing.T) {
 	out := string(rendered)
 	assert.Contains(t, out, "uses: fullsend-ai/fullsend/.github/workflows/reusable-dispatch.yml@abc123def456")
 	assert.Contains(t, out, "# v0.19.0")
+	assert.Contains(t, out, "upstream_ref: v0.19.0")
 	assert.NotContains(t, out, "fullsend_ai_ref:")
 	assertFreeOfRenderPlaceholders(t, out)
+}
+
+func TestRenderPerRepoShimDevBuild(t *testing.T) {
+	raw, err := PerRepoShimTemplate()
+	require.NoError(t, err)
+
+	// Dev builds have empty UpstreamTag — upstream_ref should be empty.
+	rendered, err := RenderTemplate("templates/shim-per-repo.yaml", raw, RenderOptions{
+		PerRepo: true,
+	})
+	require.NoError(t, err)
+	out := string(rendered)
+	// Empty upstream_ref means the dispatch workflow will use its default.
+	assert.Regexp(t, `(?m)^\s+upstream_ref:\s*$`, out)
+	assert.NotContains(t, out, "__UPSTREAM_TAG__")
 }
 
 func TestRenderDefaultRunner(t *testing.T) {
