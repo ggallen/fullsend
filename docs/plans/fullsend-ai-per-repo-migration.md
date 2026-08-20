@@ -73,12 +73,12 @@ fullsend mint unenroll fullsend-ai --project <GCP_PROJECT_ID>
 gh variable delete FULLSEND_MINT_URL --org fullsend-ai
 ```
 
-### `.fullsend` repo — workflows (delete 8, keep 3)
+### `.fullsend` repo — workflows (delete 8, keep 6)
 
 | Action | Files |
 |--------|-------|
 | Delete | `code.yml`, `dispatch.yml`, `fix.yml`, `renovate.yml`, `repo-maintenance.yml`, `retro.yml`, `review.yml`, `triage.yml` |
-| Keep | `scribe.yml`, `prioritize-scheduler.yml`, `prioritize.yml` |
+| Keep | `qualityflow.yml`, `scribe.yml`, `prioritize-scheduler.yml`, `prioritize.yml`, `sync-agent-digests.yml`, `sync-scaffold.yml` |
 
 ### `.fullsend` repo — files (delete 3)
 
@@ -86,15 +86,15 @@ gh variable delete FULLSEND_MINT_URL --org fullsend-ai
 |--------|-------|
 | Delete | `config.yaml`, `renovate.json`, `CODEOWNERS` |
 
-### `.fullsend` repo — directories (delete 2, keep 1)
+### `.fullsend` repo — directories (delete 1, keep 2)
 
 | Action | Directory | Reason |
 |--------|-----------|--------|
-| Delete | `hack/` | `update-agent-hashes.sh`, `summarize-rice.py` — dead |
 | Delete | `templates/` | Per-org dispatch shims — dead |
+| Keep | `hack/` | `update-agent-hashes.sh` used by `sync-agent-digests.yml`; delete `summarize-rice.py` |
 | Keep | `docs/` | Scribe documentation |
 
-### `.fullsend` repo — variables (delete 5, keep 10)
+### `.fullsend` repo — variables (delete 6, keep 11)
 
 | Action | Variable | Reason |
 |--------|----------|--------|
@@ -103,6 +103,7 @@ gh variable delete FULLSEND_MINT_URL --org fullsend-ai
 | Delete | `FULLSEND_PRIORITIZE_CLIENT_ID` | Not used by remaining workflows |
 | Delete | `FULLSEND_RETRO_CLIENT_ID` | Not used by remaining workflows |
 | Delete | `FULLSEND_REVIEW_CLIENT_ID` | Not used by remaining workflows |
+| Delete | `SYNC_APP_ID` | Not used by remaining workflows |
 | Keep | `FULLSEND_CODER_CLIENT_ID` | Used by scribe |
 | Keep | `FULLSEND_TRIAGE_CLIENT_ID` | Used by scribe |
 | Keep | `FULLSEND_GCP_REGION` | Used by scribe |
@@ -113,8 +114,9 @@ gh variable delete FULLSEND_MINT_URL --org fullsend-ai
 | Keep | `SCRIBE_GDRIVE_SEARCH_QUERY` | Scribe config |
 | Keep | `SCRIBE_LOOKBACK_HOURS` | Scribe config |
 | Keep | `SCRIBE_TARGET_REPO` | Scribe config |
+| Keep | `SYNC_CLIENT_ID` | Used by sync-agent-digests, sync-scaffold |
 
-### `.fullsend` repo — secrets (delete 5, keep 7)
+### `.fullsend` repo — secrets (delete 5, keep 8)
 
 | Action | Secret | Reason |
 |--------|--------|--------|
@@ -130,3 +132,4 @@ gh variable delete FULLSEND_MINT_URL --org fullsend-ai
 | Keep | `FULLSEND_GCP_WIF_SA_EMAIL` | GCP auth |
 | Keep | `SCRIBE_GCP_SA_KEY_JSON` | Used by scribe |
 | Keep | `SCRIBE_SLACK_WEBHOOK_URL` | Used by scribe |
+| Keep | `SYNC_PRIVATE_KEY` | Used by sync-agent-digests, sync-scaffold |
