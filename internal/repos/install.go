@@ -411,6 +411,19 @@ func checkInstallComponents(ctx context.Context, client forge.Client, owner, rep
 		return false, nil
 	}
 
+	// Per-repo thin callers (GitHub only).
+	if forgeName == ForgeGitHub || forgeName == "" {
+		for _, tcPath := range scaffold.PerRepoThinCallerPaths() {
+			_, tcErr := client.GetFileContent(ctx, owner, repo, tcPath)
+			if tcErr != nil {
+				if forge.IsNotFound(tcErr) {
+					return false, nil
+				}
+				return false, fmt.Errorf("checking thin caller %s: %w", tcPath, tcErr)
+			}
+		}
+	}
+
 	// Variables (forge-specific).
 	for _, varName := range requiredVarsForForge(forgeName) {
 		_, exists, err := client.GetRepoVariable(ctx, owner, repo, varName)

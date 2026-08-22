@@ -287,57 +287,44 @@ func upgradeRepo(ctx context.Context,
 	// Determine the new workflow content based on pinning style.
 	// Only SHA-pinned repos get SHA resolution; non-SHA-pinned repos
 	// keep their string ref format during upgrade.
-	var newContent []byte
-	var changed bool
+	var newRef, newTag string
 	if isSHARef(targetRef) {
-		// Target ref is already a SHA — write it directly.
-		newContent, changed = replaceShimRef(content, targetRef, "", fc, resolvedCfg.Forge)
+		newRef = targetRef
 	} else if isSHARef(currentRef) {
-		// Current ref is SHA-pinned — resolve target to SHA to
-		// preserve pinning. SHA resolution targets
-		// fullsend-ai/fullsend (always GitHub).
 		var sha string
 		if resolver != nil {
 			sha = resolver.Resolve(ctx, targetRef)
 		}
 		if sha != "" && sha != targetRef {
-			// Resolution succeeded — write @<sha> with annotation.
-			newContent, changed = replaceShimRef(content, sha, targetRef, fc, resolvedCfg.Forge)
+			newRef, newTag = sha, targetRef
 		} else if resolvedCfg.Forge == ForgeGitHub || resolvedCfg.Forge == "" {
-			// Resolver did not resolve — fall back to direct tag
-			// lookup for GitHub repos.
 			sha, err = client.GetRef(ctx, shimOwner, shimRepo, "tags/"+targetRef)
 			if err != nil {
 				result.Error = fmt.Errorf("resolving ref %s to SHA: %w", targetRef, err)
 				return result
 			}
-			newContent, changed = replaceShimRef(content, sha, targetRef, fc, resolvedCfg.Forge)
+			newRef, newTag = sha, targetRef
 		} else {
-			// Non-GitHub forge and resolution failed — cannot
-			// preserve SHA pinning. Log a warning and write the
-			// target ref as a string.
 			progress(repoFullName, "warning",
 				fmt.Sprintf("Cannot preserve SHA pinning on %s forge; writing %s as tag ref", resolvedCfg.Forge, targetRef))
-			newContent, changed = replaceShimRef(content, targetRef, "", fc, resolvedCfg.Forge)
+			newRef = targetRef
 		}
 	} else {
-		// Not SHA-pinned — write the target ref string directly,
-		// preserving the repo's non-pinned format.
-		newContent, changed = replaceShimRef(content, targetRef, "", fc, resolvedCfg.Forge)
-	}
-	if !changed {
-		result.Skipped = true
-		result.SkipReason = skipReasonForNoChange(currentRef, targetRef)
-		return result
+		newRef = targetRef
 	}
 
-	progress(repoFullName, "upgrade", fmt.Sprintf("Upgrading %s → %s", currentRef, targetRef))
+	var newContent []byte
+	var changed bool
+	newContent, changed = replaceShimRef(content, newRef, newTag, fc, resolvedCfg.Forge)
 
-	files := []forge.TreeFile{{
-		Path:    workflowPath,
-		Content: newContent,
-		Mode:    "100644",
-	}}
+	var files []forge.TreeFile
+	if changed {
+		files = append(files, forge.TreeFile{
+			Path:    workflowPath,
+			Content: newContent,
+			Mode:    "100644",
+		})
+	}
 
 	// GitLab repos have additional CI template files (agent, poll) that
 	// must be converged alongside the dispatch shim. The commit API's
@@ -353,6 +340,35 @@ func upgradeRepo(ctx context.Context,
 		}
 		files = append(files, templateFiles...)
 	}
+
+	if resolvedCfg.Forge == ForgeGitHub || resolvedCfg.Forge == "" {
+		for _, tcPath := range scaffold.PerRepoThinCallerPaths() {
+			tcContent, tcErr := client.GetFileContent(ctx, owner, repo, tcPath)
+			if tcErr != nil {
+				if forge.IsNotFound(tcErr) {
+					continue
+				}
+				result.Error = fmt.Errorf("reading thin caller %s: %w", tcPath, tcErr)
+				return result
+			}
+			tcNew, tcChanged := replaceShimRef(tcContent, newRef, newTag, fc, resolvedCfg.Forge)
+			if tcChanged {
+				files = append(files, forge.TreeFile{
+					Path:    tcPath,
+					Content: tcNew,
+					Mode:    "100644",
+				})
+			}
+		}
+	}
+
+	if len(files) == 0 {
+		result.Skipped = true
+		result.SkipReason = skipReasonForNoChange(currentRef, targetRef)
+		return result
+	}
+
+	progress(repoFullName, "upgrade", fmt.Sprintf("Upgrading %s → %s", currentRef, targetRef))
 
 	if err := commitFn(ctx, owner, repo, files, cfg.Direct); err != nil {
 		result.Error = fmt.Errorf("committing upgrade: %w", err)

@@ -43,6 +43,23 @@ func CollectInstallFiles(opts CollectInstallFilesOptions) (InstallFiles, error) 
 	return files, nil
 }
 
+// perRepoThinCallers lists thin stage caller workflows installed directly
+// into per-repo repos (in addition to the per-repo shim). These are
+// workflows that receive workflow_dispatch events from external schedulers
+// rather than being routed through the dispatch shim.
+var perRepoThinCallers = []string{
+	".github/workflows/prioritize.yml",
+}
+
+// PerRepoThinCallerPaths returns the workflow paths installed as thin
+// callers during per-repo installation. Used by uninstall and remote
+// scaffold to keep lifecycle operations in sync with install.
+func PerRepoThinCallerPaths() []string {
+	out := make([]string, len(perRepoThinCallers))
+	copy(out, perRepoThinCallers)
+	return out
+}
+
 // CollectPerRepoInstallFiles gathers files for per-repo installation.
 func CollectPerRepoInstallFiles(vendored bool, upstreamRef, upstreamTag string) (InstallFiles, error) {
 	opts := RenderOptionsForInstall(vendored, true, upstreamRef, upstreamTag)
@@ -61,6 +78,25 @@ func CollectPerRepoInstallFiles(vendored bool, upstreamRef, upstreamTag string) 
 		Content: PrependManagedHeader(".github/workflows/fullsend.yaml", shimRendered),
 		Mode:    "100644",
 	}}
+
+	// Install thin caller workflows that are dispatched externally
+	// (e.g. prioritize.yml receives dispatches from the org-level
+	// scheduler rather than through the dispatch shim).
+	for _, path := range perRepoThinCallers {
+		raw, readErr := FullsendRepoFile(path)
+		if readErr != nil {
+			return nil, fmt.Errorf("loading per-repo thin caller %s: %w", path, readErr)
+		}
+		rendered, renderErr := RenderTemplate(path, raw, opts)
+		if renderErr != nil {
+			return nil, fmt.Errorf("rendering per-repo thin caller %s: %w", path, renderErr)
+		}
+		files = append(files, InstallFile{
+			Path:    path,
+			Content: PrependManagedHeader(path, rendered),
+			Mode:    "100644",
+		})
+	}
 
 	return files, nil
 }

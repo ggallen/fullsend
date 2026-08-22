@@ -7,10 +7,18 @@ import (
 	"testing"
 
 	"github.com/fullsend-ai/fullsend/internal/forge"
+	"github.com/fullsend-ai/fullsend/internal/scaffold"
 )
 
 // noopProgress is a no-op progress callback for tests.
 func noopProgress(_, _, _ string) {}
+
+func addThinCallerFiles(fc *forge.FakeClient, owner, repo string) {
+	fullName := owner + "/" + repo
+	for _, tcPath := range scaffold.PerRepoThinCallerPaths() {
+		fc.FileContents[fullName+"/"+tcPath] = []byte("name: thin-caller")
+	}
+}
 
 type fakeScaffoldCommit struct {
 	mu     sync.Mutex
@@ -146,6 +154,7 @@ func markFullyInstalled(fc *forge.FakeClient, owner, repo string) {
 	fc.VariableValues[fullName+"/FULLSEND_MINT_URL"] = "https://mint.example.com"
 	fc.VariableValues[fullName+"/FULLSEND_GCP_REGION"] = "us-central1"
 	fc.FileContents[fullName+"/.github/workflows/fullsend.yaml"] = []byte("name: fullsend")
+	addThinCallerFiles(fc, owner, repo)
 	fc.Secrets[fullName+"/FULLSEND_GCP_PROJECT_ID"] = true
 	fc.Secrets[fullName+"/FULLSEND_GCP_WIF_PROVIDER"] = true
 }
@@ -323,6 +332,7 @@ func TestInstall_PartialInstall_WorkflowYmlExtension(t *testing.T) {
 	fc.VariableValues["acme/widgets/FULLSEND_MINT_URL"] = "https://mint.example.com"
 	fc.VariableValues["acme/widgets/FULLSEND_GCP_REGION"] = "us-central1"
 	fc.FileContents["acme/widgets/.github/workflows/fullsend.yml"] = []byte("name: fullsend")
+	addThinCallerFiles(fc, "acme", "widgets")
 	fc.Secrets["acme/widgets/FULLSEND_GCP_PROJECT_ID"] = true
 	fc.Secrets["acme/widgets/FULLSEND_GCP_WIF_PROVIDER"] = true
 
@@ -688,6 +698,7 @@ func TestCheckInstallComponents_WorkflowCheckError(t *testing.T) {
 func TestCheckInstallComponents_VariableCheckError(t *testing.T) {
 	fc := newFakeClientWithRepo()
 	fc.FileContents["acme/widgets/.github/workflows/fullsend.yaml"] = []byte("name: fullsend")
+	addThinCallerFiles(fc, "acme", "widgets")
 	fc.Errors["GetRepoVariable"] = fmt.Errorf("API rate limit")
 
 	installed, err := checkInstallComponents(context.Background(), fc, "acme", "widgets", ForgeGitHub, defaultForgeConfig)
@@ -702,6 +713,7 @@ func TestCheckInstallComponents_VariableCheckError(t *testing.T) {
 func TestCheckInstallComponents_SecretCheckError(t *testing.T) {
 	fc := newFakeClientWithRepo()
 	fc.FileContents["acme/widgets/.github/workflows/fullsend.yaml"] = []byte("name: fullsend")
+	addThinCallerFiles(fc, "acme", "widgets")
 	fc.VariableValues["acme/widgets/FULLSEND_MINT_URL"] = "https://mint.example.com"
 	fc.VariableValues["acme/widgets/FULLSEND_GCP_REGION"] = "us-central1"
 	fc.Errors["RepoSecretExists"] = fmt.Errorf("API error")
@@ -748,6 +760,7 @@ func TestCheckInstallComponents_GitLab_FullyInstalled(t *testing.T) {
 func TestCheckInstallComponents_GitHub_MissingSecrets(t *testing.T) {
 	fc := forge.NewFakeClient()
 	fc.FileContents["acme/api/.github/workflows/fullsend.yml"] = []byte(shimWorkflow)
+	addThinCallerFiles(fc, "acme", "api")
 	fc.VariableValues["acme/api/FULLSEND_MINT_URL"] = "https://mint.example.com"
 
 	installed, err := checkInstallComponents(context.Background(), fc, "acme", "api", ForgeGitHub, defaultForgeConfig)
@@ -762,6 +775,7 @@ func TestCheckInstallComponents_GitHub_MissingSecrets(t *testing.T) {
 func TestCheckInstallComponents_GitHub_WithSecrets(t *testing.T) {
 	fc := forge.NewFakeClient()
 	fc.FileContents["acme/api/.github/workflows/fullsend.yml"] = []byte(shimWorkflow)
+	addThinCallerFiles(fc, "acme", "api")
 	fc.VariableValues["acme/api/FULLSEND_MINT_URL"] = "https://mint.example.com"
 	fc.Secrets["acme/api/FULLSEND_GCP_PROJECT_ID"] = true
 	fc.Secrets["acme/api/FULLSEND_GCP_WIF_PROVIDER"] = true
@@ -772,6 +786,22 @@ func TestCheckInstallComponents_GitHub_WithSecrets(t *testing.T) {
 	}
 	if !installed {
 		t.Error("expected installed=true when all components are present")
+	}
+}
+
+func TestCheckInstallComponents_GitHub_MissingThinCaller(t *testing.T) {
+	fc := forge.NewFakeClient()
+	fc.FileContents["acme/api/.github/workflows/fullsend.yml"] = []byte(shimWorkflow)
+	fc.VariableValues["acme/api/FULLSEND_MINT_URL"] = "https://mint.example.com"
+	fc.Secrets["acme/api/FULLSEND_GCP_PROJECT_ID"] = true
+	fc.Secrets["acme/api/FULLSEND_GCP_WIF_PROVIDER"] = true
+
+	installed, err := checkInstallComponents(context.Background(), fc, "acme", "api", ForgeGitHub, defaultForgeConfig)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if installed {
+		t.Error("expected installed=false when thin caller is missing")
 	}
 }
 

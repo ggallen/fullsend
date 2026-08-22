@@ -59,11 +59,33 @@ func fetchRemoteGitHubScaffold(ctx context.Context, client forge.Client,
 		return nil, fmt.Errorf("rendering remote GitHub shim: %w", err)
 	}
 
-	return scaffold.InstallFiles{{
+	files := scaffold.InstallFiles{{
 		Path:    ".github/workflows/fullsend.yaml",
 		Content: scaffold.PrependManagedHeader(".github/workflows/fullsend.yaml", rendered),
 		Mode:    "100644",
-	}}, nil
+	}}
+
+	for _, path := range scaffold.PerRepoThinCallerPaths() {
+		remotePath := "internal/scaffold/fullsend-repo/" + path
+		raw, fetchErr := client.GetFileContentAtRef(ctx, shimOwner, shimRepo, remotePath, manifestRef)
+		if fetchErr != nil {
+			if forge.IsNotFound(fetchErr) {
+				continue
+			}
+			return nil, fmt.Errorf("fetching remote thin caller %s at %s: %w", path, manifestRef, fetchErr)
+		}
+		tcRendered, renderErr := scaffold.RenderTemplate(path, raw, opts)
+		if renderErr != nil {
+			return nil, fmt.Errorf("rendering remote thin caller %s: %w", path, renderErr)
+		}
+		files = append(files, scaffold.InstallFile{
+			Path:    path,
+			Content: scaffold.PrependManagedHeader(path, tcRendered),
+			Mode:    "100644",
+		})
+	}
+
+	return files, nil
 }
 
 func fetchRemoteGitLabScaffold(ctx context.Context, client forge.Client,
