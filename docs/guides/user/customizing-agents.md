@@ -124,6 +124,8 @@ security:                        # Security is enabled by default with fail_mode
                                     # Exact hostnames only — wildcards (e.g. "*.internal") are not supported and skipped with a warning on stderr.
                                     # Consulted only on DNS resolution failure; if DNS succeeds but resolves to a blocked IP,
                                     # the request is denied regardless of the allowlist.
+                                    # On GitLab CI, the forge host is automatically added; manual entries are only needed
+                                    # for additional non-forge hosts.
     secret_redact_posttool: true
     unicode_posttool: true
     context_suppress_posttool: true

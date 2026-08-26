@@ -17,6 +17,7 @@ import (
 	"regexp"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -35,6 +36,7 @@ import (
 	"github.com/fullsend-ai/fullsend/internal/fetchsvc"
 	"github.com/fullsend-ai/fullsend/internal/forge"
 	gh "github.com/fullsend-ai/fullsend/internal/forge/github"
+	gl "github.com/fullsend-ai/fullsend/internal/forge/gitlab"
 	"github.com/fullsend-ai/fullsend/internal/gitfetch"
 	"github.com/fullsend-ai/fullsend/internal/harness"
 	"github.com/fullsend-ai/fullsend/internal/lock"
@@ -1090,6 +1092,23 @@ func runAgent(ctx context.Context, agentName, fullsendDir, outputBase, targetRep
 	// Dedupe URL-resolved providers (last-wins) so shadowed entries from
 	// base composition don't trigger false integrity errors.
 	result.Providers = dedupResolvedProviders(result.Providers)
+
+	// Auto-generate a GitLab provider profile when running on a self-hosted
+	// GitLab instance (#6615). Prepended so that a user-defined profile
+	// with the same ID wins via last-wins dedup. Inserted before the
+	// integrity check so providers referencing this ID are valid.
+	if forgePlatform == "gitlab" {
+		if profilePath, cleanupProfile, err := generateGitLabForgeProfile(); err != nil {
+			printer.StepWarn("Failed to auto-generate GitLab forge profile: " + err.Error())
+		} else if profilePath != "" {
+			defer cleanupProfile()
+			result.Profiles = append([]resolve.ResolvedProfile{{
+				ID:        "fullsend-gitlab-forge",
+				LocalPath: profilePath,
+			}}, result.Profiles...)
+		}
+	}
+
 	dirProfileIDs, err := resolve.CollectProfileIDs(filepath.Join(absFullsendDir, "profiles"))
 	if err != nil {
 		return fmt.Errorf("scanning profiles directory: %w", err)
@@ -4039,6 +4058,52 @@ func detectForgePlatform(flag string, cfg config.ConfigReader) (string, error) {
 		return "gitlab", nil
 	}
 	return "", nil
+}
+
+// generateGitLabForgeProfile creates a temporary provider profile YAML
+// for the GitLab forge host, analogous to the scaffold's
+// fullsend-github.yaml. Returns the temp file path and a cleanup
+// function, or ("", nil, nil) when no GitLab host can be resolved.
+func generateGitLabForgeProfile() (string, func(), error) {
+	host, port := gl.ResolveForgeHostPort()
+	if host == "" {
+		return "", nil, nil
+	}
+	if strings.ContainsAny(host, "\"\\'\n\r") {
+		return "", nil, fmt.Errorf("GitLab host %q contains unsafe characters", host)
+	}
+	if _, err := strconv.Atoi(port); err != nil {
+		return "", nil, fmt.Errorf("GitLab port %q is not a valid integer", port)
+	}
+
+	profileYAML := fmt.Sprintf(`---
+id: fullsend-gitlab-forge
+display_name: Fullsend GitLab (auto)
+description: GitLab API and Git operations for fullsend agents (auto-generated from forge host)
+category: source_control
+endpoints:
+  - host: "%s"
+    port: %s
+    protocol: rest
+    access: read-write
+    enforcement: enforce
+binaries:
+  - "**/git"
+  - "**/glab"
+  - "**/node"
+  - "**/pre-commit"
+`, host, port)
+
+	tmpDir, err := os.MkdirTemp("", "fullsend-gitlab-profile-*")
+	if err != nil {
+		return "", nil, fmt.Errorf("creating temp dir for GitLab profile: %w", err)
+	}
+	profilePath := filepath.Join(tmpDir, "fullsend-gitlab-forge.yaml")
+	if err := os.WriteFile(profilePath, []byte(profileYAML), 0o644); err != nil {
+		os.RemoveAll(tmpDir)
+		return "", nil, fmt.Errorf("writing GitLab profile: %w", err)
+	}
+	return profilePath, func() { os.RemoveAll(tmpDir) }, nil
 }
 
 func titleCase(s string) string {

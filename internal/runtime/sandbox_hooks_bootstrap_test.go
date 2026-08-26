@@ -94,6 +94,8 @@ func TestAppendHookEnv_TirithDisabled(t *testing.T) {
 	sentinelPath := filepath.Join(t.TempDir(), "unused.tar.gz")
 	fakeOpenshellBootstrap(t, logPath, sentinelPath)
 
+	t.Setenv("GITLAB_CI", "")
+
 	disabled := false
 	h := &harness.Harness{Security: &harness.SecurityConfig{SandboxHooks: &harness.SandboxHooks{
 		Tirith: &harness.TirithConfig{Enabled: &disabled},
@@ -148,6 +150,8 @@ func TestAppendHookEnv_EgressAllowlist(t *testing.T) {
 	sentinelPath := filepath.Join(t.TempDir(), "unused.tar.gz")
 	fakeOpenshellBootstrap(t, logPath, sentinelPath)
 
+	t.Setenv("GITLAB_CI", "")
+
 	h := &harness.Harness{Security: &harness.SecurityConfig{SandboxHooks: &harness.SandboxHooks{
 		SSRFEgressAllowlist: "gitlab.internal:443,other.host:8443",
 	}}}
@@ -164,6 +168,8 @@ func TestAppendHookEnv_EgressAllowlistEmpty(t *testing.T) {
 	sentinelPath := filepath.Join(t.TempDir(), "unused.tar.gz")
 	fakeOpenshellBootstrap(t, logPath, sentinelPath)
 
+	t.Setenv("GITLAB_CI", "")
+
 	h := &harness.Harness{Security: &harness.SecurityConfig{SandboxHooks: &harness.SandboxHooks{}}}
 	require.NoError(t, appendHookEnv("sb", security.SandboxHookConfigFromHarness(h)))
 
@@ -172,6 +178,105 @@ func TestAppendHookEnv_EgressAllowlistEmpty(t *testing.T) {
 	require.NoError(t, err)
 	log := string(logBytes)
 	assert.NotContains(t, log, "FULLSEND_EGRESS_ALLOWLIST")
+}
+
+func TestAppendHookEnv_AutoAddsGitLabForgeHost(t *testing.T) {
+	logPath := filepath.Join(t.TempDir(), "openshell.log")
+	sentinelPath := filepath.Join(t.TempDir(), "unused.tar.gz")
+	fakeOpenshellBootstrap(t, logPath, sentinelPath)
+
+	// Simulate GitLab CI environment.
+	t.Setenv("GITLAB_CI", "true")
+	t.Setenv("FULLSEND_GITLAB_URL", "")
+	t.Setenv("GITLAB_API_URL", "")
+	t.Setenv("CI_SERVER_URL", "https://gitlab.cee.redhat.com")
+
+	h := &harness.Harness{Security: &harness.SecurityConfig{SandboxHooks: &harness.SandboxHooks{}}}
+	require.NoError(t, appendHookEnv("sb", security.SandboxHookConfigFromHarness(h)))
+
+	logBytes, err := os.ReadFile(logPath)
+	require.NoError(t, err)
+	log := string(logBytes)
+	assert.Contains(t, log, "FULLSEND_EGRESS_ALLOWLIST=gitlab.cee.redhat.com:443")
+}
+
+func TestAppendHookEnv_MergesGitLabForgeHostWithUserAllowlist(t *testing.T) {
+	logPath := filepath.Join(t.TempDir(), "openshell.log")
+	sentinelPath := filepath.Join(t.TempDir(), "unused.tar.gz")
+	fakeOpenshellBootstrap(t, logPath, sentinelPath)
+
+	t.Setenv("GITLAB_CI", "true")
+	t.Setenv("FULLSEND_GITLAB_URL", "")
+	t.Setenv("GITLAB_API_URL", "")
+	t.Setenv("CI_SERVER_URL", "https://gitlab.cee.redhat.com")
+
+	h := &harness.Harness{Security: &harness.SecurityConfig{SandboxHooks: &harness.SandboxHooks{
+		SSRFEgressAllowlist: "registry.internal:443",
+	}}}
+	require.NoError(t, appendHookEnv("sb", security.SandboxHookConfigFromHarness(h)))
+
+	logBytes, err := os.ReadFile(logPath)
+	require.NoError(t, err)
+	log := string(logBytes)
+	assert.Contains(t, log, "FULLSEND_EGRESS_ALLOWLIST=registry.internal:443,gitlab.cee.redhat.com:443")
+}
+
+func TestAppendHookEnv_NoGitLabHostWhenNotOnGitLab(t *testing.T) {
+	logPath := filepath.Join(t.TempDir(), "openshell.log")
+	sentinelPath := filepath.Join(t.TempDir(), "unused.tar.gz")
+	fakeOpenshellBootstrap(t, logPath, sentinelPath)
+
+	// Not on GitLab CI.
+	t.Setenv("GITLAB_CI", "")
+	t.Setenv("CI_SERVER_URL", "https://gitlab.example.com")
+
+	h := &harness.Harness{Security: &harness.SecurityConfig{SandboxHooks: &harness.SandboxHooks{}}}
+	require.NoError(t, appendHookEnv("sb", security.SandboxHookConfigFromHarness(h)))
+
+	logBytes, err := os.ReadFile(logPath)
+	require.NoError(t, err)
+	log := string(logBytes)
+	// Without GitLab CI, only tirith env should be set, not egress allowlist.
+	assert.NotContains(t, log, "FULLSEND_EGRESS_ALLOWLIST")
+}
+
+func TestAppendHookEnv_GitLabURLPrecedence(t *testing.T) {
+	logPath := filepath.Join(t.TempDir(), "openshell.log")
+	sentinelPath := filepath.Join(t.TempDir(), "unused.tar.gz")
+	fakeOpenshellBootstrap(t, logPath, sentinelPath)
+
+	t.Setenv("GITLAB_CI", "true")
+	t.Setenv("FULLSEND_GITLAB_URL", "https://gitlab.company.com")
+	t.Setenv("GITLAB_API_URL", "https://gitlab.api.example.com")
+	t.Setenv("CI_SERVER_URL", "https://gitlab.other.com")
+
+	h := &harness.Harness{Security: &harness.SecurityConfig{SandboxHooks: &harness.SandboxHooks{}}}
+	require.NoError(t, appendHookEnv("sb", security.SandboxHookConfigFromHarness(h)))
+
+	logBytes, err := os.ReadFile(logPath)
+	require.NoError(t, err)
+	log := string(logBytes)
+	// FULLSEND_GITLAB_URL should take precedence.
+	assert.Contains(t, log, "FULLSEND_EGRESS_ALLOWLIST=gitlab.company.com:443")
+}
+
+func TestAppendHookEnv_GitLabNonStandardPort(t *testing.T) {
+	logPath := filepath.Join(t.TempDir(), "openshell.log")
+	sentinelPath := filepath.Join(t.TempDir(), "unused.tar.gz")
+	fakeOpenshellBootstrap(t, logPath, sentinelPath)
+
+	t.Setenv("GITLAB_CI", "true")
+	t.Setenv("FULLSEND_GITLAB_URL", "")
+	t.Setenv("GITLAB_API_URL", "")
+	t.Setenv("CI_SERVER_URL", "https://gitlab.company.com:8443")
+
+	h := &harness.Harness{Security: &harness.SecurityConfig{SandboxHooks: &harness.SandboxHooks{}}}
+	require.NoError(t, appendHookEnv("sb", security.SandboxHookConfigFromHarness(h)))
+
+	logBytes, err := os.ReadFile(logPath)
+	require.NoError(t, err)
+	log := string(logBytes)
+	assert.Contains(t, log, "FULLSEND_EGRESS_ALLOWLIST=gitlab.company.com:8443")
 }
 
 func TestClaudeRuntime_Bootstrap_HooksChmodFailure(t *testing.T) {
