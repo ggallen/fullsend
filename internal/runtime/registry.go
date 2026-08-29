@@ -24,6 +24,9 @@ func Resolve(name string) (Backend, error) {
 	case "pi":
 		r := PiRuntime{}
 		return Backend{Runtime: r, Transcripts: r}, nil
+	case "dummy-playback":
+		r := DummyPlaybackRuntime{}
+		return Backend{Runtime: r, Transcripts: r}, nil
 	default:
 		return Backend{}, fmt.Errorf("unknown runtime %q: must be one of %s", name, strings.Join(config.ValidRuntimes(), ", "))
 	}

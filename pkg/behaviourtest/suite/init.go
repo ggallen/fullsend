@@ -105,6 +105,8 @@ func resetScenarioWorld(w *world.World) {
 	w.JiraMockServer = nil
 	w.JiraMockState = nil
 	w.JiraConfigDir = ""
+	w.PlaybackEntries = nil
+	w.PlaybackCommitted = false
 }
 
 func tagNames(tags []*messages.PickleTag) []string {

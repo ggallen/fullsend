@@ -59,6 +59,7 @@ type RunParams struct {
 	// retries this field exists to remove. Runtime support is tracked in the
 	// key support matrix in docs/runtimes.md.
 	Prompt string
+	Forge  string // "github", "gitlab"; empty defaults to "github"
 }
 
 // TranscriptError holds extracted error information from a runtime transcript.

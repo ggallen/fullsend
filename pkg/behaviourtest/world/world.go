@@ -113,6 +113,10 @@ type World struct {
 	AgentsOverridden bool
 	AgentsOriginal   []config.AgentEntry
 
+	ScenarioName      string
+	PlaybackEntries   []runtime.PlaybackEntry
+	PlaybackCommitted bool
+
 	// Jira mock state — set by the "Given a mock Jira server" step.
 	JiraMockServer *httptest.Server
 	JiraMockState  *jiramock.State
@@ -135,6 +139,12 @@ type World struct {
 func (w *World) Clone() *World {
 	clone := *w
 	return &clone
+}
+
+// IsPlaybackMode returns true when the world is configured for playback testing.
+func (w *World) IsPlaybackMode() bool {
+	_, ok := w.Driver.(*install.PlaybackDriver)
+	return ok
 }
 
 const BehaviourScriptRepoPath = "behaviour/current-scenario.yaml"

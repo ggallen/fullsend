@@ -1,0 +1,4 @@
+{
+  "target_branch": "main",
+  "pr_body": "Fixes the login session handling regression.\n\nChanges:\n- Added session token validation in auth handler."
+}

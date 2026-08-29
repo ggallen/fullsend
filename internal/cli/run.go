@@ -1972,6 +1972,7 @@ func runAgent(ctx context.Context, agentName, fullsendDir, outputBase, targetRep
 			Timeout:           timeout,
 			OutputPath:        filepath.Join(iterDir, "output.jsonl"),
 			Prompt:            agentPrompt,
+			Forge:             forgePlatform,
 			OnEvent:           contentEventHandler(agentruntime.NewEventRenderer(printer).Handle, collector),
 		}, printer, agentStart, &metrics)
 		close(heartbeatDone)

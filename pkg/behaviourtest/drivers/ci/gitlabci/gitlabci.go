@@ -66,6 +66,17 @@ type Driver struct {
 	nowFunc func() time.Time
 }
 
+type schedulePlayer interface {
+	ListPipelineSchedules(ctx context.Context, owner, repo string) ([]forge.PipelineSchedule, error)
+	PlayPipelineSchedule(ctx context.Context, owner, repo string, scheduleID int64) error
+}
+
+var pollScheduleDescription = map[string]string{
+	"triage": "fullsend event poll",
+	"code":   "fullsend event poll",
+	"retro":  "fullsend event poll",
+}
+
 // New creates a GitLab CI driver backed by the given forge client.
 func New(client forge.Client, token string) ci.Driver {
 	return &Driver{Client: client, Token: token, afterFunc: time.After, nowFunc: time.Now}
@@ -400,9 +411,32 @@ func isConcurrencySuperseded(conclusion string) bool {
 	}
 }
 
+// triggerPollSchedule plays the pipeline schedule that discovers events for the
+// given agent, so the test doesn't have to wait for the cron interval. Agents
+// triggered by MR events (review, fix) have no poll schedule and are skipped.
+func triggerPollSchedule(ctx context.Context, player schedulePlayer, owner, repo, agent string) {
+	desc, ok := pollScheduleDescription[agent]
+	if !ok {
+		return
+	}
+	schedules, err := player.ListPipelineSchedules(ctx, owner, repo)
+	if err != nil {
+		return
+	}
+	for _, s := range schedules {
+		if s.Description == desc {
+			_ = player.PlayPipelineSchedule(ctx, owner, repo, s.ID)
+			return
+		}
+	}
+}
+
 // WaitForHarnessAgent waits for a successful harness-run pipeline job for
 // the named agent, using artifact-first detection with job-name fallback.
 func (d *Driver) WaitForHarnessAgent(ctx context.Context, owner, repo, agent string, after time.Time) (*forge.WorkflowRun, error) {
+	if player, ok := d.Client.(schedulePlayer); ok {
+		triggerPollSchedule(ctx, player, owner, repo, agent)
+	}
 	deadline := d.now().Add(dispatchWait)
 	interval := dispatchPollInit
 	var artifactErrs, runsErrs, lookupErrs pollErrors
