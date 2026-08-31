@@ -117,6 +117,12 @@ type World struct {
 	PlaybackEntries   []runtime.PlaybackEntry
 	PlaybackCommitted bool
 
+	// DispatchedRuns maps agent name → pipeline/run ID, populated by
+	// the "is triggered" steps from dispatch logs. Used by the
+	// "completes successfully" step to watch a specific pipeline
+	// instead of scanning all recent runs.
+	DispatchedRuns map[string]int
+
 	// Jira mock state — set by the "Given a mock Jira server" step.
 	JiraMockServer *httptest.Server
 	JiraMockState  *jiramock.State

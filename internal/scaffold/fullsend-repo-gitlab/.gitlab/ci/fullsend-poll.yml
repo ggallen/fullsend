@@ -27,9 +27,15 @@ spec:
         echo "ERROR: CI_DEBUG_TRACE enabled — aborting to protect secrets"
         exit 1
       fi
-      # Install fullsend CLI at the version pinned during
-      # `fullsend repos install`. Mirrors the GitHub Actions
-      # install-fullsend-cli action (#6445).
+      # Install fullsend CLI — prefer a vendored binary committed by
+      # `fullsend repos install` (dev/testing), then fall back to
+      # downloading the version pinned during install.
+      VENDORED_BIN=".fullsend/bin/fullsend"
+      if [ -f "${VENDORED_BIN}" ]; then
+        cp "${VENDORED_BIN}" /usr/local/bin/fullsend
+        chmod +x /usr/local/bin/fullsend
+        echo "Using vendored fullsend binary"
+      else
       FULLSEND_VERSION="__FULLSEND_VERSION__"
       FULLSEND_REPO="fullsend-ai/fullsend"
       # Resolve "latest" to the actual release tag.
@@ -101,6 +107,7 @@ spec:
           rm -rf "${FSSRC}"
           ;;
       esac
+      fi
       fullsend --version
   script:
     - |

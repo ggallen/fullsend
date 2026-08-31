@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -80,6 +81,20 @@ var pollScheduleDescription = map[string]string{
 // New creates a GitLab CI driver backed by the given forge client.
 func New(client forge.Client, token string) ci.Driver {
 	return &Driver{Client: client, Token: token, afterFunc: time.After, nowFunc: time.Now}
+}
+
+// ForgeClient returns the underlying forge client.
+func (d *Driver) ForgeClient() forge.Client { return d.Client }
+
+// TriggerSlashPoll triggers the slash poll pipeline schedule so that
+// recently posted /fs-* commands are discovered without waiting for
+// the next cron cycle.
+func (d *Driver) TriggerSlashPoll(ctx context.Context, owner, repo string) {
+	player, ok := d.Client.(schedulePlayer)
+	if !ok {
+		return
+	}
+	triggerPollScheduleByDesc(ctx, player, owner, repo, "fullsend slash poll")
 }
 
 // now returns the current time from nowFunc, falling back to time.Now
@@ -366,23 +381,26 @@ func (d *Driver) DownloadNamedArtifactAfter(ctx context.Context, owner, repo, ar
 	return fmt.Errorf("artifact %q not found after %s%s", artifactName, after.Format(time.RFC3339), listErrs.describe(nil, "polls"))
 }
 
-// harnessJobSuffix returns the job name suffix used by the harness
-// pipeline for a given agent on GitLab. The naming convention mirrors
-// GitHub Actions' "Harness run (<agent>)" pattern.
-func harnessJobSuffix(agent string) string {
-	return "Harness run (" + agent + ")"
+// harnessJobName returns the GitLab CI job name for an agent stage.
+// The naming convention is "fullsend <agent> agent" (from the
+// fullsend-agent.yml template's inputs.stage expansion).
+func harnessJobName(agent string) string {
+	return "fullsend " + agent + " agent"
 }
 
 // runHasAgentJob reports whether the given pipeline contains a job whose
-// name matches the harness job for agent.
+// name matches the harness job for agent. Matches both the GitLab
+// convention ("fullsend <agent> agent") and the legacy GitHub-style
+// suffix ("Harness run (<agent>)").
 func (d *Driver) runHasAgentJob(ctx context.Context, owner, repo string, runID int, agent string) (bool, forge.WorkflowJob, error) {
 	jobs, err := d.Client.ListWorkflowRunJobs(ctx, owner, repo, runID)
 	if err != nil {
 		return false, forge.WorkflowJob{}, fmt.Errorf("list jobs for pipeline %d: %w", runID, err)
 	}
-	suffix := harnessJobSuffix(agent)
+	glName := harnessJobName(agent)
+	ghSuffix := "Harness run (" + agent + ")"
 	for _, j := range jobs {
-		if strings.HasSuffix(j.Name, suffix) {
+		if j.Name == glName || strings.HasSuffix(j.Name, ghSuffix) {
 			return true, j, nil
 		}
 	}
@@ -419,16 +437,26 @@ func triggerPollSchedule(ctx context.Context, player schedulePlayer, owner, repo
 	if !ok {
 		return
 	}
+	triggerPollScheduleByDesc(ctx, player, owner, repo, desc)
+}
+
+func triggerPollScheduleByDesc(ctx context.Context, player schedulePlayer, owner, repo, desc string) {
 	schedules, err := player.ListPipelineSchedules(ctx, owner, repo)
 	if err != nil {
+		log.Printf("[gitlabci] triggerPollSchedule: list schedules failed: %v", err)
 		return
 	}
 	for _, s := range schedules {
 		if s.Description == desc {
-			_ = player.PlayPipelineSchedule(ctx, owner, repo, s.ID)
+			if err := player.PlayPipelineSchedule(ctx, owner, repo, s.ID); err != nil {
+				log.Printf("[gitlabci] triggerPollSchedule: play schedule %d failed: %v", s.ID, err)
+			} else {
+				log.Printf("[gitlabci] triggerPollSchedule: played schedule %d (%s)", s.ID, desc)
+			}
 			return
 		}
 	}
+	log.Printf("[gitlabci] triggerPollSchedule: no schedule found matching %q", desc)
 }
 
 // WaitForHarnessAgent waits for a successful harness-run pipeline job for
@@ -620,7 +648,7 @@ func (d *Driver) AssertNoHarnessAgentArtifact(ctx context.Context, owner, repo, 
 		}
 		if hasJob {
 			return fmt.Errorf("expected harness %q not to run, but job %q found in pipeline %d",
-				agent, harnessJobSuffix(agent), r.ID)
+				agent, harnessJobName(agent), r.ID)
 		}
 	}
 	return nil

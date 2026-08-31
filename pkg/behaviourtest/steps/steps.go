@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -12,6 +13,7 @@ import (
 	"github.com/cucumber/godog"
 	"gopkg.in/yaml.v3"
 
+	"github.com/fullsend-ai/fullsend/internal/forge"
 	"github.com/fullsend-ai/fullsend/internal/runtime"
 	"github.com/fullsend-ai/fullsend/pkg/behaviourtest/world"
 )
@@ -36,6 +38,12 @@ func registerE2ESteps(sc *godog.ScenarioContext) {
 		}
 		w.PlaybackEntries = append(w.PlaybackEntries, runtime.PlaybackEntry{Result: result})
 		return ctx, nil
+	})
+	sc.Step(`^the (\w+) agent is triggered$`, func(ctx context.Context, agent string) (context.Context, error) {
+		return ctx, thenAgentIsTriggered(world.FromContext(ctx), agent)
+	})
+	sc.Step(`^the (\w+) agent is triggered with "([^"]+)"$`, func(ctx context.Context, agent, command string) (context.Context, error) {
+		return ctx, thenAgentIsTriggeredWith(world.FromContext(ctx), agent, command)
 	})
 	sc.Step(`^the (\w+) agent completes successfully$`, func(ctx context.Context, agent string) (context.Context, error) {
 		return ctx, thenAgentCompletes(world.FromContext(ctx), agent)
@@ -153,12 +161,114 @@ func commitFixtureRepo(w *world.World, repoDir string) error {
 	})
 }
 
+// thenAgentIsTriggered verifies that the named agent was dispatched
+// automatically (e.g. via webhook on GitHub). On GitLab, automatic
+// dispatch does not exist — the test must use the "/fs-{agent}" step.
+func thenAgentIsTriggered(w *world.World, agent string) error {
+	if resolveForge(w) == "gitlab" {
+		return fmt.Errorf("automatic %s dispatch is not supported on GitLab; use the \"/fs-%s\" step instead", agent, agent)
+	}
+	if w.ScenarioStart.IsZero() {
+		return fmt.Errorf("no workflow trigger time recorded")
+	}
+	ctx := context.Background()
+	event := triggerEventForAgent(agent)
+	run, err := w.CI.WaitForWorkflow(ctx, w.Org, w.RepoName, "fullsend.yaml", w.ScenarioStart, event)
+	if err != nil {
+		return fmt.Errorf("waiting for dispatch workflow: %w", err)
+	}
+	return verifyDispatchLogs(w, ctx, run.ID, agent)
+}
+
+func triggerEventForAgent(agent string) string {
+	switch agent {
+	case "review":
+		return "pull_request_target"
+	case "fix":
+		return "pull_request_review"
+	default:
+		return "issues"
+	}
+}
+
+// thenAgentIsTriggeredWith posts a slash command comment on the issue
+// and verifies that the agent was dispatched.
+func thenAgentIsTriggeredWith(w *world.World, agent, command string) error {
+	if w.IssueNumber == 0 {
+		return fmt.Errorf("no issue created")
+	}
+	if w.ScenarioStart.IsZero() {
+		return fmt.Errorf("no workflow trigger time recorded")
+	}
+	ctx := context.Background()
+	if _, err := w.SCM.AddComment(ctx, w.RepoOwner, w.RepoName, w.IssueNumber, command); err != nil {
+		return fmt.Errorf("posting %s comment: %w", command, err)
+	}
+	w.Logf("[trigger] posted %s on issue #%d", command, w.IssueNumber)
+
+	var run *forge.WorkflowRun
+	var err error
+
+	type slashPoller interface {
+		TriggerSlashPoll(ctx context.Context, owner, repo string)
+	}
+	if sp, ok := w.CI.(slashPoller); ok {
+		time.Sleep(5 * time.Second)
+		sp.TriggerSlashPoll(ctx, w.Org, w.RepoName)
+		run, err = w.CI.WaitForWorkflow(ctx, w.Org, w.RepoName, "", w.ScenarioStart, "schedule")
+	} else {
+		run, err = w.CI.WaitForWorkflow(ctx, w.Org, w.RepoName, "fullsend.yaml", w.ScenarioStart, "issue_comment")
+	}
+	if err != nil {
+		return fmt.Errorf("waiting for dispatch workflow after %s: %w", command, err)
+	}
+	return verifyDispatchLogs(w, ctx, run.ID, agent)
+}
+
+var pipelineIDRe = regexp.MustCompile(`/pipelines/(\d+)|/actions/runs/(\d+)`)
+
+func verifyDispatchLogs(w *world.World, ctx context.Context, runID int, agent string) error {
+	logs, err := w.CI.GetRunLogs(ctx, w.Org, w.RepoName, runID)
+	if err != nil {
+		return fmt.Errorf("reading dispatch logs for run %d: %w", runID, err)
+	}
+	for _, line := range strings.Split(logs, "\n") {
+		if strings.Contains(line, agent) &&
+			(strings.Contains(line, "Dispatched") || strings.Contains(line, "→")) {
+			w.Logf("[trigger] dispatch confirmed: %s", strings.TrimSpace(line))
+			if m := pipelineIDRe.FindStringSubmatch(line); m != nil {
+				idStr := m[1]
+				if idStr == "" {
+					idStr = m[2]
+				}
+				if id, err := strconv.Atoi(idStr); err == nil {
+					if w.DispatchedRuns == nil {
+						w.DispatchedRuns = make(map[string]int)
+					}
+					w.DispatchedRuns[agent] = id
+					w.Logf("[trigger] recorded %s pipeline ID %d", agent, id)
+				}
+			}
+			return nil
+		}
+	}
+	return fmt.Errorf("%s agent was not dispatched (run %d logs contain no dispatch line for %q)", agent, runID, agent)
+}
+
 func thenAgentCompletes(w *world.World, agent string) error {
 	if w.ScenarioStart.IsZero() {
 		return fmt.Errorf("no workflow trigger time recorded")
 	}
 	ctx := context.Background()
-	run, err := w.CI.WaitForHarnessAgent(ctx, w.Org, w.RepoName, agent, w.ScenarioStart)
+
+	var run *forge.WorkflowRun
+	var err error
+
+	if id, ok := w.DispatchedRuns[agent]; ok {
+		run, err = waitForRun(w, ctx, id)
+	} else {
+		run, err = w.CI.WaitForHarnessAgent(ctx, w.Org, w.RepoName, agent, w.ScenarioStart)
+	}
 	if err != nil {
 		return err
 	}
@@ -170,6 +280,35 @@ func thenAgentCompletes(w *world.World, agent string) error {
 		}
 	}
 	return nil
+}
+
+func waitForRun(w *world.World, ctx context.Context, runID int) (*forge.WorkflowRun, error) {
+	type clienter interface{ ForgeClient() forge.Client }
+	ci, ok := w.CI.(clienter)
+	if !ok {
+		return nil, fmt.Errorf("CI driver does not expose ForgeClient")
+	}
+	client := ci.ForgeClient()
+	deadline := time.Now().Add(12 * time.Minute)
+	for time.Now().Before(deadline) {
+		reqCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		run, err := client.GetWorkflowRun(reqCtx, w.Org, w.RepoName, runID)
+		cancel()
+		if err != nil {
+			w.Logf("[wait] GetWorkflowRun(%d): %v", runID, err)
+			time.Sleep(10 * time.Second)
+			continue
+		}
+		if run.Status == "completed" {
+			if run.Conclusion == "success" {
+				return run, nil
+			}
+			return run, fmt.Errorf("pipeline %d concluded with %q (%s)", runID, run.Conclusion, run.HTMLURL)
+		}
+		w.Logf("[wait] pipeline %d: status=%s", runID, run.Status)
+		time.Sleep(10 * time.Second)
+	}
+	return nil, fmt.Errorf("pipeline %d did not complete within deadline", runID)
 }
 
 func recordAgentArtifact(w *world.World, agent string) error {

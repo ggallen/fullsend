@@ -123,6 +123,21 @@ func (d *PlaybackDriver) AllocateRepo(ctx context.Context) (string, error) {
 	defer os.RemoveAll(tmpDir)
 	manifestPath := tmpDir + "/repos.yaml"
 
+	if d.forgeName == "gitlab" {
+		setDefaults := [][]string{
+			{"repos", "set-default", "gitlab.url", d.gitlabURL(), "-f", manifestPath},
+			{"repos", "set-default", "gitlab.runner_tags", d.gitlabRunnerTags(), "-f", manifestPath},
+		}
+		for _, sdArgs := range setDefaults {
+			d.logf("[playback] fullsend %s", strings.Join(sdArgs, " "))
+			if _, err := d.runCLI(d.binary, d.token, sdArgs...); err != nil {
+				d.deprovisionInference(name)
+				d.deleteRepo(ctx, name)
+				return "", fmt.Errorf("repos %s: %w", strings.Join(sdArgs[1:4], " "), err)
+			}
+		}
+	}
+
 	args := []string{
 		"repos", "install", target,
 		"--forge", d.forgeName,
@@ -130,6 +145,9 @@ func (d *PlaybackDriver) AllocateRepo(ctx context.Context) (string, error) {
 		"--runtime", playbackRuntime(),
 		"--inference-project", d.gcpProjectID,
 		"-f", manifestPath,
+	}
+	if d.forgeName == "gitlab" {
+		args = append(args, "--gitlab-bot-token", d.token)
 	}
 	_ = wifProvider
 	d.logf("[playback] fullsend %s", strings.Join(args, " "))
@@ -142,7 +160,7 @@ func (d *PlaybackDriver) AllocateRepo(ctx context.Context) (string, error) {
 	d.logf("[playback] vendoring local binary into %s", target)
 	if err := layers.VendorBinary(ctx, d.client, d.org, name,
 		layers.VendoredBinaryPathPerRepo, d.binary,
-		"chore: vendor local fullsend binary for playback test"); err != nil {
+		"chore: vendor local fullsend binary for playback test [skip ci]"); err != nil {
 		d.deprovisionInference(name)
 		d.deleteRepo(ctx, name)
 		return "", fmt.Errorf("vendoring binary into %s: %w", target, err)
@@ -188,6 +206,19 @@ func (d *PlaybackDriver) trackingCommentRef(target string, issueNumber, commentI
 	default:
 		return fmt.Sprintf("gh\n/repos/%s/issues/comments/%d", target, commentID)
 	}
+}
+
+// InstalledBotToken reads the FULLSEND_FORGE_TOKEN CI/CD variable from
+// the project, returning the bot token created during repos install.
+func (d *PlaybackDriver) InstalledBotToken(ctx context.Context, repoName string) (string, error) {
+	val, ok, err := d.client.GetRepoVariable(ctx, d.org, repoName, "FULLSEND_FORGE_TOKEN")
+	if err != nil {
+		return "", fmt.Errorf("reading FULLSEND_FORGE_TOKEN: %w", err)
+	}
+	if !ok {
+		return "", fmt.Errorf("FULLSEND_FORGE_TOKEN not found on %s/%s", d.org, repoName)
+	}
+	return val, nil
 }
 
 func (d *PlaybackDriver) DeallocateRepo(ctx context.Context, repoName string) error {
@@ -253,6 +284,20 @@ func (d *PlaybackDriver) deleteRepo(ctx context.Context, name string) {
 	if err := d.client.DeleteRepo(ctx, d.org, name); err != nil && !forge.IsNotFound(err) {
 		d.logf("[playback] failed to delete %s/%s: %v", d.org, name, err)
 	}
+}
+
+func (d *PlaybackDriver) gitlabURL() string {
+	if u := os.Getenv("GITLAB_BASE_URL"); u != "" {
+		return u
+	}
+	return "https://gitlab.com"
+}
+
+func (d *PlaybackDriver) gitlabRunnerTags() string {
+	if t := os.Getenv("GITLAB_RUNNER_TAGS"); t != "" {
+		return t
+	}
+	return "fullsend-gitlab-runner"
 }
 
 func playbackRuntime() string {

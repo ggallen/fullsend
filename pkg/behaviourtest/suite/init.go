@@ -69,7 +69,9 @@ func afterScenario(ctx context.Context, driver install.Driver, scenarioErr error
 			}
 		}()
 	}
-	steps.CleanupScenario(w)
+	if !w.IsPlaybackMode() {
+		steps.CleanupScenario(w)
+	}
 	return ctx, retErr
 }
 

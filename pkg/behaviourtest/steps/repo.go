@@ -7,6 +7,8 @@ import (
 
 	"github.com/cucumber/godog"
 
+	"github.com/fullsend-ai/fullsend/internal/forge"
+	"github.com/fullsend-ai/fullsend/pkg/behaviourtest/drivers/ci/gitlabci"
 	"github.com/fullsend-ai/fullsend/pkg/behaviourtest/drivers/install"
 	"github.com/fullsend-ai/fullsend/pkg/behaviourtest/world"
 )
@@ -40,12 +42,35 @@ func givenInstalledTestRepository(ctx context.Context, w *world.World) error {
 	w.RepoName = repoName
 	w.RepoFull = w.Org + "/" + repoName
 
+	if pd, ok := w.Driver.(*install.PlaybackDriver); ok {
+		if err := reconfigureCIWithBotToken(ctx, w, pd, repoName); err != nil {
+			w.Logf("[repo] WARNING: could not reconfigure CI driver with bot token: %v", err)
+		}
+	}
+
 	if w.IsPlaybackMode() && len(w.PlaybackEntries) > 0 && !w.PlaybackCommitted {
 		if err := commitPlaylist(w); err != nil {
 			return fmt.Errorf("auto-committing playlist: %w", err)
 		}
 	}
 
+	return nil
+}
+
+func reconfigureCIWithBotToken(ctx context.Context, w *world.World, pd *install.PlaybackDriver, repoName string) error {
+	if resolveForge(w) != "gitlab" {
+		return nil
+	}
+	botToken, err := pd.InstalledBotToken(ctx, repoName)
+	if err != nil {
+		return err
+	}
+	fc, ok := w.CI.(interface{ ForgeClient() forge.Client })
+	if !ok {
+		return fmt.Errorf("CI driver does not expose ForgeClient")
+	}
+	w.CI = gitlabci.New(fc.ForgeClient(), botToken)
+	w.Logf("[repo] CI driver reconfigured with installed bot token")
 	return nil
 }
 
