@@ -9,11 +9,9 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
-	"slices"
 
 	"github.com/fullsend-ai/fullsend/internal/config"
 	"github.com/fullsend-ai/fullsend/internal/forge"
-	"github.com/fullsend-ai/fullsend/internal/gitlabroles"
 	"github.com/fullsend-ai/fullsend/internal/maputil"
 	"github.com/fullsend-ai/fullsend/internal/poll"
 	"github.com/fullsend-ai/fullsend/internal/preset"
@@ -748,32 +746,10 @@ func requiredVarsForForge(forgeName string) []string {
 	return requiredVariables
 }
 
-// requiredSecretsForForge returns the secret names that must exist for
-// the given forge. On GitLab, FULLSEND_FORGE_TOKEN is included because
-// secrets are stored as masked CI/CD variables and ListRepoVariables
-// returns them — excluding them from the required set would cause
-// orphan detection to flag them as false positives.
-//
-// GitLab role tokens (FULLSEND_GITLAB_*_TOKEN) and the role registry
-// stay optional in this required set so existing installations and
-// partial migrations do not fail health checks. Missing role secrets
-// under an enabled gate are reported by Diagnose / repos status, not
-// by requiredSecretsForForge. See internal/gitlabroles.
+// requiredSecretsForForge returns the secret names that must exist for the
+// given forge. GitLab runtime authentication is role-credential-only; role
+// readiness is checked by the GitLab role registry/status path.
 func requiredSecretsForForge(forgeName string) []string {
-	return requiredSecretsForForgeMode(forgeName, "", false)
-}
-
-func requiredSecretsForForgeMode(forgeName, migrationMode string, migrationExists bool) []string {
-	if forgeName == ForgeGitLab {
-		mode, err := gitlabroles.ParseMode(migrationMode)
-		if migrationExists && err == nil && mode == gitlabroles.ModeEnforced {
-			return requiredSecrets
-		}
-		if migrationExists && err != nil {
-			return requiredSecrets
-		}
-		return slices.Concat(requiredSecrets, []string{forge.SecretForgeToken})
-	}
 	return requiredSecrets
 }
 

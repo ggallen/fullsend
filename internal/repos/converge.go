@@ -9,7 +9,6 @@ import (
 
 	"github.com/fullsend-ai/fullsend/internal/config"
 	"github.com/fullsend-ai/fullsend/internal/forge"
-	"github.com/fullsend-ai/fullsend/internal/gitlabroles"
 	"github.com/fullsend-ai/fullsend/internal/mintcore"
 	"github.com/fullsend-ai/fullsend/internal/preset"
 	"github.com/fullsend-ai/fullsend/internal/scaffold"
@@ -693,30 +692,15 @@ func convergeRepo(ctx context.Context,
 	// bot-token setup and pipeline-schedule setup independently: a retry
 	// where one artifact already exists must not redo that one just
 	// because the other is still missing.
-	sharedCredentialRequired := true
-	if resolved.Forge == ForgeGitLab {
-		migrationMode, exists, modeErr := resolved.ForgeConfig.Client.GetRepoVariable(ctx, rr.Owner, rr.Repo, forge.VarGitLabRoleMigration)
-		if modeErr != nil {
-			cr.Error = fmt.Errorf("reading GitLab role migration mode: %w", modeErr)
-			return cr
-		}
-		if exists {
-			if _, parseErr := gitlabroles.ParseMode(migrationMode); parseErr != nil {
-				cr.Error = fmt.Errorf("invalid GitLab role migration mode: %w", parseErr)
-				return cr
-			}
-		}
-		if !exists || strings.TrimSpace(migrationMode) == "" {
-			sharedCredentialRequired = !gitlabRoleCredentialPresent(d.components)
-		} else {
-			sharedCredentialRequired = gitlabSharedCredentialRequired(migrationMode, exists)
-		}
-	}
+	// GitLab runtime authentication is role-only. The old shared-token gate
+	// is intentionally not consulted during convergence; uninstall remains
+	// responsible for removing legacy shared-token artifacts.
+	sharedCredentialRequired := false
 	needsBotToken := sharedCredentialRequired && !gitlabBotTokenPresent(d.components)
 	needsSchedules := !gitlabSchedulesPresent(d.components)
 	// Track whether either independently gated post-install action is needed.
-	// The shared bot-token requirement is intentionally migration-aware, so
-	// gitlabPostInstallDone cannot be used here after enforced cutover.
+	// The shared bot-token action is retired; role provisioning owns all
+	// GitLab runtime credentials.
 	needsPostInstall := needsBotToken || needsSchedules
 	cr.NeedsGitLabPostInstall = needsPostInstall
 	cr.NeedsGitLabBotToken = needsBotToken
@@ -1136,28 +1120,6 @@ func uniqueScaffoldFiles(files []forge.TreeFile) []forge.TreeFile {
 		out = append(out, f)
 	}
 	return out
-}
-
-func gitlabRoleCredentialPresent(components []ComponentStatus) bool {
-	for _, component := range components {
-		switch component.Name {
-		case "secret:" + forge.SecretGitLabPollerToken,
-			"secret:" + forge.SecretGitLabAnalystToken,
-			"secret:" + forge.SecretGitLabCoderToken:
-			if component.Present {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-func gitlabSharedCredentialRequired(migrationMode string, exists bool) bool {
-	if !exists {
-		return true
-	}
-	mode, err := gitlabroles.ParseMode(migrationMode)
-	return err == nil && mode != gitlabroles.ModeEnforced
 }
 
 // convergeVariables checks and repairs variable drift for an installed repo.

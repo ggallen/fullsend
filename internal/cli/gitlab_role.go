@@ -153,10 +153,6 @@ func checkGitLabApprovalCapability(forgeName, action, token string, getenv func(
 	if getenv == nil {
 		getenv = os.Getenv
 	}
-	mode, err := gitlabroles.ModeFrom(getenv)
-	if err != nil {
-		return err
-	}
 	agentName := strings.TrimSpace(getenv(envGitLabRole))
 	if agentName == "" {
 		agentName = strings.TrimSpace(getenv("STAGE"))
@@ -173,7 +169,6 @@ func checkGitLabApprovalCapability(forgeName, action, token string, getenv func(
 	if authToken == "" || secretValue == "" || authToken != secretValue {
 		return &gitlabroles.Error{
 			Role:   sel.Source.Role,
-			Mode:   mode,
 			Secret: sel.Source.SecretName,
 			Err:    gitlabroles.ErrIdentityMismatch,
 		}

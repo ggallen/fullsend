@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/fullsend-ai/fullsend/internal/forge"
-	"github.com/fullsend-ai/fullsend/internal/gitlabroles"
 	"github.com/fullsend-ai/fullsend/internal/scaffold"
 )
 
@@ -230,21 +229,7 @@ func ProbeComponents(ctx context.Context, client forge.Client, owner, repo, forg
 	}
 
 	// Required secrets (existence check only — values cannot be read back).
-	migrationMode := ""
-	migrationExists := false
-	if forgeName == ForgeGitLab {
-		var migrationErr error
-		migrationMode, migrationExists, migrationErr = client.GetRepoVariable(ctx, owner, repo, forge.VarGitLabRoleMigration)
-		if migrationErr != nil {
-			return nil, fmt.Errorf("checking variable %s: %w", forge.VarGitLabRoleMigration, migrationErr)
-		}
-		if migrationExists {
-			if _, err := gitlabroles.ParseMode(migrationMode); err != nil {
-				return nil, fmt.Errorf("invalid GitLab role migration mode: %w", err)
-			}
-		}
-	}
-	for _, secretName := range requiredSecretsForForgeMode(forgeName, migrationMode, migrationExists) {
+	for _, secretName := range requiredSecretsForForge(forgeName) {
 		exists, err := client.RepoSecretExists(ctx, owner, repo, secretName)
 		if err != nil {
 			return nil, fmt.Errorf("checking secret %s: %w", secretName, err)

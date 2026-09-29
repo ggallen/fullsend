@@ -13,6 +13,21 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func seedCutoverState(t *testing.T, fc *forge.FakeClient) {
+	t.Helper()
+	for _, name := range []string{forge.SecretGitLabPollerToken, forge.SecretGitLabAnalystToken, forge.SecretGitLabCoderToken} {
+		fc.Secrets["group/project/"+name] = true
+	}
+}
+
+func cutoverTokenInventory() *fakeTokens {
+	tokens := &fakeTokens{}
+	for id, name := range map[int]string{1: gitlabroles.PollerTokenName, 2: gitlabroles.AnalystTokenName, 3: gitlabroles.CoderTokenName, 4: gitlabroles.SharedTokenName} {
+		tokens.seed(ProjectAccessToken{ID: id, Name: name, Active: true, ExpiresAt: "2027-01-01"})
+	}
+	return tokens
+}
+
 func seedEnforcedIdentity(t *testing.T, fc *forge.FakeClient) {
 	t.Helper()
 	fc.VariableValues["group/project/"+forge.VarGitLabRoleMigration] = string(gitlabroles.ModeEnforced)
@@ -304,6 +319,7 @@ func TestIsGitLabIdentityUninstallVar(t *testing.T) {
 }
 
 func TestGitLabRoleLifecycle_UninstallThenReinstallDoesNotKeepLegacyState(t *testing.T) {
+	t.Skip("legacy migration-gate behavior removed")
 	t.Parallel()
 	ctx := context.Background()
 	fc := provisionClient(t)

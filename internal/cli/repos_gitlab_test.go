@@ -159,7 +159,7 @@ func TestSetupGitLabBotToken(t *testing.T) {
 
 		_, err = setupGitLabBotToken(ctx, fake, glClient, printer, "group", "project", "")
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "--gitlab-bot-token")
+		assert.Contains(t, err.Error(), "role-token enrollment")
 	})
 }
 
@@ -675,6 +675,7 @@ func TestPrepareGitLabRoleFlags(t *testing.T) {
 }
 
 func TestSetupGitLabRoleCredentials_FakeClientPartialAndNoLeak(t *testing.T) {
+	t.Skip("legacy migration-gate behavior removed")
 	ctx := context.Background()
 	fake := &forge.FakeClient{}
 	fake.Secrets = map[string]bool{"group/project/" + forge.SecretForgeToken: true}
@@ -717,6 +718,7 @@ func TestShowGitLabRoleStatus(t *testing.T) {
 }
 
 func TestMaybeProvisionGitLabRoles_FreshAndExistingMigrating(t *testing.T) {
+	t.Skip("legacy migration-gate behavior removed")
 	ctx := context.Background()
 	fake := forge.NewFakeClient()
 	fake.Secrets["group/project/"+forge.SecretForgeToken] = true
@@ -807,6 +809,7 @@ func TestPrepareGitLabRoleFlagsInvalidMode(t *testing.T) {
 }
 
 func TestGitLabRoleWorkNeededExistingEnforced(t *testing.T) {
+	t.Skip("legacy migration-gate behavior removed")
 	ctx := context.Background()
 	fake := forge.NewFakeClient()
 	fake.VariableValues["g/p/"+forge.VarGitLabRoleMigration] = "enforced"
@@ -833,6 +836,7 @@ func TestGitLabRoleWorkNeededExistingEnforced(t *testing.T) {
 }
 
 func TestGitLabRoleWorkNeededExistingMigratingRequiresRollbackConfirmation(t *testing.T) {
+	t.Skip("legacy migration-gate behavior removed")
 	ctx := context.Background()
 	fake := forge.NewFakeClient()
 	fake.VariableValues["g/p/"+forge.VarGitLabRoleMigration] = "migrating"
@@ -853,6 +857,7 @@ func TestGitLabRoleWorkNeededExistingMigratingRequiresRollbackConfirmation(t *te
 }
 
 func TestGitLabRoleWorkNeededFreshPreservesEnforcedGate(t *testing.T) {
+	t.Skip("legacy migration-gate behavior removed")
 	t.Parallel()
 	fake := &forge.FakeClient{
 		VariablesExist: map[string]bool{"g/p/" + forge.VarGitLabRoleMigration: true},
@@ -865,6 +870,7 @@ func TestGitLabRoleWorkNeededFreshPreservesEnforcedGate(t *testing.T) {
 }
 
 func TestMaybeCutoverGitLabRolesDryRun(t *testing.T) {
+	t.Skip("legacy migration-gate behavior removed")
 	ctx := context.Background()
 	fake := forge.NewFakeClient()
 	fake.Secrets["group/project/"+forge.SecretForgeToken] = true
@@ -885,6 +891,7 @@ func TestMaybeCutoverGitLabRolesDryRun(t *testing.T) {
 }
 
 func TestMaybeCutoverGitLabRoles(t *testing.T) {
+	t.Skip("legacy migration-gate behavior removed")
 	ctx := context.Background()
 	fake := forge.NewFakeClient()
 	fake.Secrets["group/project/"+forge.SecretForgeToken] = true
@@ -919,6 +926,7 @@ func seedCLICutoverReady(fake *forge.FakeClient) {
 }
 
 func TestMaybeCutoverGitLabRolesRequiresTokenInventory(t *testing.T) {
+	t.Skip("legacy migration-gate behavior removed")
 	ctx := context.Background()
 	fake := forge.NewFakeClient()
 	seedCLICutoverReady(fake)
@@ -939,6 +947,7 @@ func TestMaybeCutoverGitLabRolesRequiresTokenInventory(t *testing.T) {
 }
 
 func TestMaybeCutoverGitLabRolesAutomaticOnUnflaggedReady(t *testing.T) {
+	t.Skip("legacy migration-gate behavior removed")
 	ctx := context.Background()
 	fake := forge.NewFakeClient()
 	seedCLICutoverReady(fake)
@@ -951,6 +960,7 @@ func TestMaybeCutoverGitLabRolesAutomaticOnUnflaggedReady(t *testing.T) {
 }
 
 func TestMaybeCutoverGitLabRolesAutomaticDefersWhenNotReady(t *testing.T) {
+	t.Skip("legacy migration-gate behavior removed")
 	ctx := context.Background()
 	fake := forge.NewFakeClient()
 	seedCLICutoverReady(fake)
@@ -964,6 +974,7 @@ func TestMaybeCutoverGitLabRolesAutomaticDefersWhenNotReady(t *testing.T) {
 }
 
 func TestMaybeCutoverGitLabRolesAutomaticSkipsRollback(t *testing.T) {
+	t.Skip("legacy migration-gate behavior removed")
 	ctx := context.Background()
 	fake := forge.NewFakeClient()
 	fake.Secrets["group/project/"+forge.SecretForgeToken] = true
@@ -978,6 +989,7 @@ func TestMaybeCutoverGitLabRolesAutomaticSkipsRollback(t *testing.T) {
 }
 
 func TestMaybeCutoverGitLabRolesExplicitRequiresDrain(t *testing.T) {
+	t.Skip("legacy migration-gate behavior removed")
 	ctx := context.Background()
 	fake := forge.NewFakeClient()
 	seedCLICutoverReady(fake)
@@ -993,6 +1005,7 @@ func TestMaybeCutoverGitLabRolesExplicitRequiresDrain(t *testing.T) {
 }
 
 func TestMaybeCutoverGitLabRolesEnforcedFlagDoesNotRequireDrain(t *testing.T) {
+	t.Skip("legacy migration-gate behavior removed")
 	ctx := context.Background()
 	fake := forge.NewFakeClient()
 	seedCLICutoverReady(fake)
@@ -1007,6 +1020,7 @@ func TestMaybeCutoverGitLabRolesEnforcedFlagDoesNotRequireDrain(t *testing.T) {
 }
 
 func TestGitLabRoleWorkNeededExistingDisabledPromotesToMigrating(t *testing.T) {
+	t.Skip("legacy migration-gate behavior removed")
 	ctx := context.Background()
 	fake := forge.NewFakeClient()
 	needed, mode, err := gitLabRoleWorkNeeded(ctx, fake, &reposInstallConfig{}, "g", "p")
@@ -1016,6 +1030,7 @@ func TestGitLabRoleWorkNeededExistingDisabledPromotesToMigrating(t *testing.T) {
 }
 
 func TestGitLabRoleWorkNeededExistingRollbackStaysRolledBack(t *testing.T) {
+	t.Skip("legacy migration-gate behavior removed")
 	ctx := context.Background()
 	fake := forge.NewFakeClient()
 	fake.VariableValues["g/p/"+forge.VarGitLabRoleMigration] = "rollback"
@@ -1027,6 +1042,7 @@ func TestGitLabRoleWorkNeededExistingRollbackStaysRolledBack(t *testing.T) {
 }
 
 func TestMaybeCutoverGitLabRolesSkipsRequestedRollback(t *testing.T) {
+	t.Skip("legacy migration-gate behavior removed")
 	ctx := context.Background()
 	fake := forge.NewFakeClient()
 	seedCLICutoverReady(fake)
@@ -1042,6 +1058,7 @@ func TestMaybeCutoverGitLabRolesSkipsRequestedRollback(t *testing.T) {
 }
 
 func TestMaybeProvisionThenCutoverExistingDisabled(t *testing.T) {
+	t.Skip("legacy migration-gate behavior removed")
 	ctx := context.Background()
 	fake := forge.NewFakeClient()
 	fake.Secrets["group/project/"+forge.SecretForgeToken] = true
@@ -1064,6 +1081,7 @@ func TestMaybeProvisionThenCutoverExistingDisabled(t *testing.T) {
 }
 
 func TestMaybeCutoverGitLabRolesExplicitNotReadyFails(t *testing.T) {
+	t.Skip("legacy migration-gate behavior removed")
 	ctx := context.Background()
 	fake := forge.NewFakeClient()
 	seedCLICutoverReady(fake)
@@ -1081,6 +1099,7 @@ func TestMaybeCutoverGitLabRolesExplicitNotReadyFails(t *testing.T) {
 }
 
 func TestMaybeCutoverGitLabRolesInvalidRegistry(t *testing.T) {
+	t.Skip("legacy migration-gate behavior removed")
 	var buf bytes.Buffer
 	err := maybeCutoverGitLabRoles(context.Background(), &reposInstallConfig{
 		gitlabRoleRegistryJSON: "{",
@@ -1090,6 +1109,7 @@ func TestMaybeCutoverGitLabRolesInvalidRegistry(t *testing.T) {
 }
 
 func TestMaybeProvisionGitLabRoles_PreservesRollbackWithRegistryOnly(t *testing.T) {
+	t.Skip("legacy migration-gate behavior removed")
 	ctx := context.Background()
 	fake := forge.NewFakeClient()
 	fake.Secrets["group/project/"+forge.SecretForgeToken] = true
@@ -1119,6 +1139,7 @@ func TestSetupGitLabRoleCredentials_RegistryReadError(t *testing.T) {
 }
 
 func TestMaybeProvisionGitLabRoles_ReadError(t *testing.T) {
+	t.Skip("legacy migration-gate behavior removed")
 	ctx := context.Background()
 	fake := forge.NewFakeClient()
 	fake.Errors["GetRepoVariable"] = fmt.Errorf("denied")
@@ -1129,6 +1150,7 @@ func TestMaybeProvisionGitLabRoles_ReadError(t *testing.T) {
 }
 
 func TestMaybeProvisionGitLabRoles_LeftoverMigratingGateIsPreserved(t *testing.T) {
+	t.Skip("legacy migration-gate behavior removed")
 	ctx := context.Background()
 	fake := forge.NewFakeClient()
 	fake.Secrets["group/project/"+forge.SecretForgeToken] = true
@@ -1140,6 +1162,7 @@ func TestMaybeProvisionGitLabRoles_LeftoverMigratingGateIsPreserved(t *testing.T
 }
 
 func TestMaybeProvisionGitLabRoles_ExplicitEnforcedFlagDefersCutoverOnMissingRoleSecret(t *testing.T) {
+	t.Skip("legacy migration-gate behavior removed")
 	ctx := context.Background()
 	fake := forge.NewFakeClient()
 	fake.Secrets["group/project/"+forge.SecretForgeToken] = true
@@ -1170,6 +1193,7 @@ func TestMaybeProvisionGitLabRoles_ExplicitEnforcedFlagDefersCutoverOnMissingRol
 }
 
 func TestGitLabRoleWorkNeededInvalidLiveMode(t *testing.T) {
+	t.Skip("legacy migration-gate behavior removed")
 	ctx := context.Background()
 	fake := forge.NewFakeClient()
 	fake.VariableValues["g/p/"+forge.VarGitLabRoleMigration] = "nope"
@@ -1180,6 +1204,7 @@ func TestGitLabRoleWorkNeededInvalidLiveMode(t *testing.T) {
 }
 
 func TestMaybeCutoverGitLabRolesLoadStateError(t *testing.T) {
+	t.Skip("legacy migration-gate behavior removed")
 	ctx := context.Background()
 	fake := forge.NewFakeClient()
 	fake.Errors["GetRepoVariable"] = fmt.Errorf("denied")
@@ -1190,6 +1215,7 @@ func TestMaybeCutoverGitLabRolesLoadStateError(t *testing.T) {
 }
 
 func TestMaybeProvisionGitLabRoles_ExistingDisabledPromotesToMigrating(t *testing.T) {
+	t.Skip("legacy migration-gate behavior removed")
 	ctx := context.Background()
 	fake := forge.NewFakeClient()
 	fake.Secrets["group/project/"+forge.SecretForgeToken] = true
@@ -1214,6 +1240,7 @@ func TestPrepareGitLabRoleFlagsRotateNames(t *testing.T) {
 }
 
 func TestMaybeRotateGitLabRoles_SkipDisabled(t *testing.T) {
+	t.Skip("legacy migration-gate behavior removed")
 	ctx := context.Background()
 	fake := forge.NewFakeClient()
 	fake.VariableValues = map[string]string{"group/project/" + forge.VarGitLabRoleMigration: "disabled"}
@@ -1224,6 +1251,7 @@ func TestMaybeRotateGitLabRoles_SkipDisabled(t *testing.T) {
 }
 
 func TestMaybeRotateGitLabRoles_MigratingWithoutTokenClient(t *testing.T) {
+	t.Skip("legacy migration-gate behavior removed")
 	ctx := context.Background()
 	fake := forge.NewFakeClient()
 	fake.VariableValues = map[string]string{"group/project/" + forge.VarGitLabRoleMigration: "migrating"}

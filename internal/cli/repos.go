@@ -470,21 +470,21 @@ type reposInstallConfig struct {
 	inferenceRegion        string
 
 	// GitLab-specific
-	gitlabURL           string
-	gitlabBotToken      string
-	gitlabRoleMigration string
-	gitlabRoleRegistry  string
-	gitlabRoleTokens    []string
-
-	gitlabRoleRegistryJSON      string
-	gitlabRoleProvided          map[gitlabroles.Role]string
+	gitlabURL string
+	// Legacy fields remain for in-package compatibility while public migration flags are removed.
+	gitlabRoleMigration         string
 	gitlabRoleModeFlag          gitlabroles.Mode
 	gitlabRoleCutover           bool
 	gitlabRoleCutoverDrained    bool
 	gitlabRoleRollbackConfirmed bool
-	rotateGitLabRoles           bool
-	rotateGitLabRoleNames       []string
-	rotateGitLabRoleFilter      []gitlabroles.Role
+	gitlabRoleRegistry          string
+	gitlabRoleTokens            []string
+
+	gitlabRoleRegistryJSON string
+	gitlabRoleProvided     map[gitlabroles.Role]string
+	rotateGitLabRoles      bool
+	rotateGitLabRoleNames  []string
+	rotateGitLabRoleFilter []gitlabroles.Role
 
 	// Per-repo overrides
 	fullsendRef            string
@@ -535,9 +535,6 @@ GCP infrastructure (WIF, mint) must be provisioned separately via
 		RunE: func(cmd *cobra.Command, args []string) error {
 			opts.repoFilter = args
 			opts.gitlabToken = getGitLabToken(cmd)
-			if opts.gitlabBotToken == "" {
-				opts.gitlabBotToken = os.Getenv(forge.VarGitLabBotToken)
-			}
 			if err := validateVendorFlags(opts.vendor, opts.fullsendBinary, opts.fullsendSource); err != nil {
 				return err
 			}
@@ -563,13 +560,8 @@ GCP infrastructure (WIF, mint) must be provisioned separately via
 	cmd.Flags().StringSliceVar(&opts.allowedRemoteResources, "allowed-remote-resources", nil, "per-repo allowed remote resources override")
 	cmd.Flags().StringVar(&opts.runtime, "runtime", "", "agent runtime written to the per-repo config for repos added by this command (claude, pi, codex); repos already in the manifest keep their entry/defaults.runtime")
 	cmd.Flags().StringVar(&opts.gitlabURL, "gitlab-url", "", "GitLab instance URL (e.g. https://gitlab.example.com); sets gitlab.url in the manifest and implies --forge=gitlab when no forge is specified")
-	cmd.Flags().StringVar(&opts.gitlabBotToken, "gitlab-bot-token", "", "GitLab bot PAT for free-tier instances that don't support project access tokens")
-	cmd.Flags().StringVar(&opts.gitlabRoleMigration, "gitlab-role-migration", "", "GitLab role-credential gate: enforced or rollback (default: provision role credentials and cut over to enforced; passing enforced explicitly assumes in-flight shared-token jobs are drained, the same as ordinary install, and does not require --gitlab-role-cutover-drained; rollback is emergency recovery only and requires --gitlab-role-rollback-confirmed when leaving a role-required gate, migrating or enforced)")
 	cmd.Flags().StringVar(&opts.gitlabRoleRegistry, "gitlab-role-registry", "", "path to administrator GitLab role registry JSON (custom roles; never secret values)")
 	cmd.Flags().StringArrayVar(&opts.gitlabRoleTokens, "gitlab-role-token", nil, "administrator-provided GitLab role PAT (repeatable, role=token); values are never logged")
-	cmd.Flags().BoolVar(&opts.gitlabRoleCutover, "gitlab-role-cutover", false, "explicitly verify GitLab roles, enable enforced mode, and retire the shared credential (ordinary install already does this when roles are ready)")
-	cmd.Flags().BoolVar(&opts.gitlabRoleCutoverDrained, "gitlab-role-cutover-drained", false, "confirm in-flight shared-token jobs are drained; required with --gitlab-role-cutover")
-	cmd.Flags().BoolVar(&opts.gitlabRoleRollbackConfirmed, "gitlab-role-rollback-confirmed", false, "confirm reopening the shared GitLab credential path when changing a role-required gate (migrating or enforced) to rollback")
 	cmd.Flags().BoolVar(&opts.rotateGitLabRoles, "rotate-gitlab-roles", false, "force-rotate GitLab role credentials even if they are not near expiry")
 	cmd.Flags().StringArrayVar(&opts.rotateGitLabRoleNames, "rotate-gitlab-role", nil, "rotate a specific GitLab role (repeatable); default is all own-credential roles that are due")
 	addVendorFlags(cmd, &opts.vendor, &opts.fullsendBinary, &opts.fullsendSource)
@@ -1065,20 +1057,6 @@ func runReposInstall(ctx context.Context, opts *reposInstallConfig) error {
 				continue
 			}
 
-			if r.NeedsGitLabBotToken {
-				_, botErr := setupGitLabBotToken(ctx, fc.Client, glClient, printer, r.Owner, r.Repo, opts.gitlabBotToken)
-				if botErr != nil {
-					printer.StepWarn(fmt.Sprintf("[%s] Bot token setup failed: %v", repoFullName, botErr))
-					r.Error = botErr
-					postInstallFailedRepos = append(postInstallFailedRepos, r)
-					if r.Installed {
-						installedPostFail++
-					}
-					failedRepoKeys[repoFullName] = true
-					continue
-				}
-			}
-
 			if r.Installed && r.NeedsGitLabPipelineSchedules {
 				targetRepo, repoErr := fc.Client.GetRepo(ctx, r.Owner, r.Repo)
 				if repoErr != nil {
@@ -1197,43 +1175,6 @@ func runReposInstall(ctx context.Context, opts *reposInstallConfig) error {
 				roleFailedRepos = append(roleFailedRepos, item.r)
 				continue
 			}
-			if !opts.dryRun && opts.gitlabRoleModeFlag == gitlabroles.ModeRollback {
-				secretExists, secretErr := fc.Client.RepoSecretExists(ctx, item.r.Owner, item.r.Repo, forge.SecretForgeToken)
-				if secretErr != nil {
-					printer.StepWarn(fmt.Sprintf("[%s/%s] Could not check shared GitLab credential recovery state: %v", item.r.Owner, item.r.Repo, secretErr))
-					roleFail++
-					item.r.Error = secretErr
-					roleFailedRepos = append(roleFailedRepos, item.r)
-					if item.fresh {
-						roleFailInstalledCount++
-					}
-					continue
-				}
-				if !secretExists {
-					glClient, ok := fc.Client.(*gl.LiveClient)
-					if !ok {
-						err := fmt.Errorf("GitLab client type assertion failed during shared credential recovery")
-						printer.StepWarn(fmt.Sprintf("[%s/%s] %v", item.r.Owner, item.r.Repo, err))
-						roleFail++
-						item.r.Error = err
-						roleFailedRepos = append(roleFailedRepos, item.r)
-						if item.fresh {
-							roleFailInstalledCount++
-						}
-						continue
-					}
-					if _, err := setupGitLabBotToken(ctx, fc.Client, glClient, printer, item.r.Owner, item.r.Repo, opts.gitlabBotToken); err != nil {
-						printer.StepWarn(fmt.Sprintf("[%s/%s] Shared GitLab credential recovery failed: %v", item.r.Owner, item.r.Repo, err))
-						roleFail++
-						item.r.Error = err
-						roleFailedRepos = append(roleFailedRepos, item.r)
-						if item.fresh {
-							roleFailInstalledCount++
-						}
-						continue
-					}
-				}
-			}
 			if err := maybeRotateGitLabRoles(ctx, opts, fc.Client, printer, item.r.Owner, item.r.Repo); err != nil {
 				printer.StepWarn(fmt.Sprintf("[%s/%s] GitLab role rotation failed: %v", item.r.Owner, item.r.Repo, err))
 				roleFail++
@@ -1244,14 +1185,15 @@ func runReposInstall(ctx context.Context, opts *reposInstallConfig) error {
 				roleFailedRepos = append(roleFailedRepos, item.r)
 				continue
 			}
-			if err := maybeCutoverGitLabRoles(ctx, opts, fc.Client, printer, item.r.Owner, item.r.Repo); err != nil {
-				printer.StepWarn(fmt.Sprintf("[%s/%s] GitLab role cutover failed: %v", item.r.Owner, item.r.Repo, err))
+			if err := maybeRetireGitLabSharedCredential(ctx, opts, fc.Client, printer, item.r.Owner, item.r.Repo); err != nil {
+				printer.StepWarn(fmt.Sprintf("[%s/%s] Legacy GitLab shared credential retirement failed: %v", item.r.Owner, item.r.Repo, err))
 				roleFail++
 				item.r.Error = err
 				if item.fresh {
 					roleFailInstalledCount++
 				}
 				roleFailedRepos = append(roleFailedRepos, item.r)
+				continue
 			}
 			if item.r.Error != nil {
 				continue

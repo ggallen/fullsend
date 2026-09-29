@@ -329,7 +329,7 @@ func TestSelectGitLabRoleToken_MatchesGoRegistryResolution(t *testing.T) {
 	}
 }
 
-func TestSelectGitLabRoleToken_InvalidModeFailsClosed(t *testing.T) {
+func TestSelectGitLabRoleToken_IgnoresLegacyMode(t *testing.T) {
 	script := selectGitLabRoleTokenScript(t)
 	_, stderr, err := sourceRoleTokenScript(t, script, []string{
 		"FULLSEND_JOB_KIND=poller",
@@ -337,5 +337,5 @@ func TestSelectGitLabRoleToken_InvalidModeFailsClosed(t *testing.T) {
 		"FULLSEND_FORGE_TOKEN=shared-pat",
 	})
 	require.Error(t, err)
-	assert.Contains(t, stderr, "invalid GitLab role migration mode")
+	assert.Contains(t, stderr, "FULLSEND_GITLAB_POLLER_TOKEN is not set")
 }

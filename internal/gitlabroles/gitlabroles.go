@@ -14,12 +14,12 @@
 // is the #7501 verification for Poller, Analyst, and Coder; it does
 // not enable enforced mode or retire the shared token.
 //
-// Runtime authentication is role-credential only: Resolve selects the
-// registered role credential and never FULLSEND_FORGE_TOKEN, including
-// leftover ModeDisabled / unset gates and explicit ModeRollback.
-// ModeMigrating remains an internal install intermediate. Ordinary
-// repos install still converges leftover shared-token installs; the
-// gate no longer changes runtime credential selection.
+// Runtime authentication is role-credential only: Resolve and Select
+// select the registered role credential and never FULLSEND_FORGE_TOKEN.
+// They do not read FULLSEND_GITLAB_ROLE_MIGRATION. Leftover, migrating,
+// enforced, rollback, and invalid gate values are ignored at dispatch.
+// Mode remains install/converge state (ParseMode, Diagnose, ordinary
+// repos install).
 //
 // Canonical documentation: docs/contributing/gitlab-role-credentials.md.
 package gitlabroles
@@ -186,6 +186,9 @@ func AgentJob(name string) Job {
 // Request is the input to Resolve. Present maps secret/variable names
 // to whether they are non-empty; it must never contain secret values.
 type Request struct {
+	// Mode is ignored for credential selection. Select does not set it.
+	// Callers that still pass a gate value get it copied onto Error for
+	// install/status annotation only.
 	Mode Mode
 	Job  Job
 	// Registry is the trusted allowlist. The zero value means built-in
@@ -233,16 +236,14 @@ type RoleReport struct {
 // signal: for leftover ModeDisabled / ModeRollback it is
 // SharedPresent (the legacy shared-token install path is complete),
 // while runtime credential selection (Resolve / Select / SelectAgent)
-// always requires the registered per-role secret in every mode,
-// including those two, and never falls back to FULLSEND_FORGE_TOKEN.
+// always requires the registered per-role secret and never reads the
+// migration gate or falls back to FULLSEND_FORGE_TOKEN.
 // A leftover disabled/rollback install can therefore report Ready
 // while `fullsend poll` / `fullsend run` still fail closed with
 // ErrUnconfigured because the role secret has not been provisioned
 // yet — see TestDiagnoseReadyDivergesFromResolveOnLeftoverModes. #7782
-// made runtime job routing role-credential-only in every mode but
-// intentionally left status/converge (this function) unchanged; do
-// not read Ready as a promise that runtime authentication will
-// succeed.
+// made runtime job routing role-credential-only and independent of
+// Mode; status/converge (this function) still branches on the gate.
 type Report struct {
 	Mode          Mode
 	SharedPresent bool
@@ -351,15 +352,12 @@ func PresenceFrom(getenv func(string) string, reg Registry) map[string]bool {
 // credential reference is selected.
 //
 // Rules:
-//   - Every valid mode requires the registered role secret. There is
-//     no shared-token path. Unconfigured is distinct from unregistered
-//     and from authentication failure.
+//   - The registered role secret is always required. There is no
+//     shared-token path. Request.Mode is not consulted. Unconfigured
+//     is distinct from unregistered and from authentication failure.
 //   - FailedSecret set: fail closed with ErrAuthFailed. Never switch
 //     identities after a runtime authentication failure.
 func Resolve(req Request) (Source, error) {
-	if !req.Mode.Valid() {
-		return Source{}, &Error{Mode: req.Mode, Err: ErrInvalidMode}
-	}
 	reg := req.Registry.effective()
 	if req.FailedSecret != "" {
 		role, _ := reg.roleForSecret(req.FailedSecret)

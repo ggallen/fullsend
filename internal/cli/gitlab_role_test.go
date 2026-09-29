@@ -376,11 +376,17 @@ func TestApplyGitLabRoleSelectionNilSetenv(t *testing.T) {
 	assert.Equal(t, "", os.Getenv("PUSH_TOKEN"), "Poller must not inherit leftover PUSH_TOKEN")
 }
 
-func TestCheckGitLabApprovalCapabilityInvalidMode(t *testing.T) {
+func TestCheckGitLabApprovalCapabilityIgnoresInvalidMode(t *testing.T) {
 	t.Parallel()
-	err := checkGitLabApprovalCapability("gitlab", "approve", "", func(string) string { return "nope" })
-	require.Error(t, err)
-	assert.ErrorIs(t, err, gitlabroles.ErrInvalidMode)
+	env := map[string]string{
+		forge.VarGitLabRoleMigration:   "nope",
+		forge.SecretForgeToken:         "shared",
+		forge.SecretGitLabPollerToken:  "p",
+		forge.SecretGitLabAnalystToken: "a",
+		forge.SecretGitLabCoderToken:   "c",
+		envGitLabRole:                  "analyst",
+	}
+	require.NoError(t, checkGitLabApprovalCapability("gitlab", "approve", "a", mapGetenv(env)))
 }
 
 func TestCheckGitLabApprovalCapabilityNilGetenvDisabledFailsClosed(t *testing.T) {

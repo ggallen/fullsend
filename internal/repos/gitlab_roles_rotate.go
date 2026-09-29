@@ -111,13 +111,7 @@ func RotateGitLabRoleCredentials(ctx context.Context, cfg RoleRotateConfig) (Rol
 	operationLock := gitlabRoleOperationLock(cfg.Owner, cfg.Repo)
 	operationLock.Lock()
 	defer operationLock.Unlock()
-	mode := cfg.Mode
-	if mode == "" {
-		mode = gitlabroles.ModeDisabled
-	}
-	if !mode.Valid() {
-		return result, fmt.Errorf("%w: %q", gitlabroles.ErrInvalidMode, mode)
-	}
+	mode := gitlabroles.ModeEnforced
 	result.Mode = mode
 	reg := cfg.Registry
 	if len(reg.Registrations()) == 0 {
@@ -147,18 +141,6 @@ func RotateGitLabRoleCredentials(ctx context.Context, cfg RoleRotateConfig) (Rol
 	lockTTL := cfg.LockTTL
 	if lockTTL <= 0 {
 		lockTTL = defaultRotateLockTTL
-	}
-
-	if mode.UsesSharedOnly() && !cfg.Force && len(cfg.Roles) == 0 {
-		result.Diagnostics = append(result.Diagnostics, fmt.Sprintf(
-			"mode=%s: role credentials unused; skip rotation (pass --rotate-gitlab-roles to refresh leftover secrets)", mode))
-		present, presErr := gitLabRolePresence(ctx, cfg.Client, cfg.Owner, cfg.Repo, reg)
-		if presErr != nil {
-			return result, fmt.Errorf("reading GitLab role credential presence: %w", presErr)
-		}
-		result.Report = gitlabroles.Diagnose(mode, present, reg)
-		result.Diagnostics = append(result.Diagnostics, result.Report.Diagnostics...)
-		return result, nil
 	}
 
 	if cfg.Tokens == nil && len(cfg.ProvidedTokens) == 0 {
@@ -1095,14 +1077,9 @@ func EnrichGitLabRoleStatus(ctx context.Context, client forge.Client, owner, rep
 	for _, rr := range rep.Roles {
 		lifecycle[rr.Name] = rr.Lifecycle
 	}
-	if gitLabRoleReadinessRequired(mode) {
-		builtin := appendBuiltinRoleReadiness(status, present, reg, lifecycle)
-		registered := appendRegisteredRoleReadiness(status, present, reg, lifecycle)
-		status.GitLabRolesReady = status.GitLabRolesReady && builtin.Ready && registered.Ready
-	}
-	if !mode.RequiresRoleCredentials() {
-		return false
-	}
+	builtin := appendBuiltinRoleReadiness(status, present, reg, lifecycle)
+	registered := appendRegisteredRoleReadiness(status, present, reg, lifecycle)
+	status.GitLabRolesReady = status.GitLabRolesReady && builtin.Ready && registered.Ready
 	before := len(status.Drifts)
 	seen := make(map[string]struct{}, len(status.Drifts))
 	for _, d := range status.Drifts {

@@ -46,7 +46,7 @@ func TestSelectDisabledUsesRoleToken(t *testing.T) {
 	}
 	sel, err := Select(PollerJob(), testGetenv(env))
 	require.NoError(t, err)
-	assert.Equal(t, ModeDisabled, sel.Mode)
+	assert.Empty(t, sel.Mode)
 	assert.Equal(t, forge.SecretGitLabPollerToken, sel.Source.SecretName)
 	assert.False(t, sel.Source.Shared)
 	assert.Equal(t, RolePoller, sel.Source.Role)
@@ -258,11 +258,30 @@ func TestSelectEnforcedMissingRoleDoesNotFallback(t *testing.T) {
 	assert.Contains(t, err.Error(), forge.SecretGitLabCoderToken)
 }
 
-func TestSelectInvalidModeFailsClosed(t *testing.T) {
+func TestSelectIgnoresMigrationGate(t *testing.T) {
 	t.Parallel()
-	_, err := Select(PollerJob(), func(string) string { return "nope" })
-	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrInvalidMode)
+	for _, mode := range []string{"", "disabled", "migrating", "rollback", "enforced", "nope"} {
+		subtestName := mode
+		if subtestName == "" {
+			subtestName = "unset"
+		}
+		t.Run(subtestName, func(t *testing.T) {
+			t.Parallel()
+			env := map[string]string{
+				forge.SecretForgeToken:        "glpat-SHARED-secret",
+				forge.SecretGitLabPollerToken: "glpat-POLLER-secret",
+			}
+			if mode != "" {
+				env[forge.VarGitLabRoleMigration] = mode
+			}
+			sel, err := Select(PollerJob(), testGetenv(env))
+			require.NoError(t, err)
+			assert.Empty(t, sel.Mode)
+			assert.Equal(t, RolePoller, sel.Source.Role)
+			assert.Equal(t, forge.SecretGitLabPollerToken, sel.Source.SecretName)
+			assert.False(t, sel.Source.Shared)
+		})
+	}
 }
 
 func TestSelectInvalidRegistryFailsClosed(t *testing.T) {
@@ -356,18 +375,15 @@ func TestSelectNilGetenvUsesProcessEnv(t *testing.T) {
 
 func TestSelectAgentErrorPaths(t *testing.T) {
 	t.Parallel()
-	_, err := SelectAgent("review", "", func(string) string { return "nope" })
-	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrInvalidMode)
-
 	env := map[string]string{
-		forge.VarGitLabRoleMigration: "migrating",
+		forge.VarGitLabRoleMigration: "nope",
 		forge.SecretForgeToken:       "shared",
 		forge.VarGitLabRoleRegistry:  `{not-json`,
 	}
-	_, err = SelectAgent("review", "", testGetenv(env))
+	_, err := SelectAgent("review", "", testGetenv(env))
 	require.Error(t, err)
 	assert.ErrorIs(t, err, ErrInvalidRegistry)
+	assert.NotErrorIs(t, err, ErrInvalidMode)
 }
 
 func TestSelectUnknownJobKindInRoleAwareMode(t *testing.T) {

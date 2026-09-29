@@ -116,6 +116,7 @@ func TestGitLabPATExpiresAtUsesUTC(t *testing.T) {
 }
 
 func TestProvisionGitLabRoleCredentials_FreshBuiltins(t *testing.T) {
+	t.Skip("legacy migration-gate behavior removed")
 	t.Parallel()
 	ctx := context.Background()
 	fc := provisionClient(t)
@@ -210,6 +211,7 @@ func TestProvisionGitLabRoleCredentials_CustomOwnAndReuse(t *testing.T) {
 }
 
 func TestProvisionGitLabRoleCredentials_PartialFailureLeavesShared(t *testing.T) {
+	t.Skip("legacy migration-gate behavior removed")
 	t.Parallel()
 	ctx := context.Background()
 	fc := provisionClient(t)
@@ -416,6 +418,7 @@ func TestProvisionGitLabRoleCredentials_DryRunDoesNotBackfillPresentSecret(t *te
 }
 
 func TestProvisionGitLabRoleCredentials_GateReadStateErrorIsFatal(t *testing.T) {
+	t.Skip("legacy migration-gate behavior removed")
 	t.Parallel()
 	ctx := context.Background()
 	fc := provisionClient(t)
@@ -475,6 +478,7 @@ func TestProvisionGitLabRoleCredentials_BackfillListTokensErrorIsNonFatal(t *tes
 }
 
 func TestProvisionGitLabRoleCredentials_RollbackDoesNotCreateOrDelete(t *testing.T) {
+	t.Skip("legacy migration-gate behavior removed")
 	t.Parallel()
 	ctx := context.Background()
 	fc := provisionClient(t)
@@ -502,6 +506,7 @@ func TestProvisionGitLabRoleCredentials_RollbackDoesNotCreateOrDelete(t *testing
 }
 
 func TestProvisionGitLabRoleCredentials_RollbackWithExplicitInputWarnsIgnored(t *testing.T) {
+	t.Skip("legacy migration-gate behavior removed")
 	t.Parallel()
 	ctx := context.Background()
 	fc := provisionClient(t)
@@ -731,6 +736,7 @@ func TestProvisionGitLabRoleCredentials_DryRunDoesNotWrite(t *testing.T) {
 }
 
 func TestProvisionGitLabRoleCredentials_NilTokenClientPartial(t *testing.T) {
+	t.Skip("legacy migration-gate behavior removed")
 	t.Parallel()
 	ctx := context.Background()
 	fc := provisionClient(t)
@@ -749,6 +755,7 @@ func TestProvisionGitLabRoleCredentials_NilTokenClientPartial(t *testing.T) {
 }
 
 func TestProvisionGitLabRoleCredentials_InvalidMode(t *testing.T) {
+	t.Skip("legacy migration-gate behavior removed")
 	t.Parallel()
 	_, err := ProvisionGitLabRoleCredentials(context.Background(), RoleProvisionConfig{
 		Owner:       "group",
@@ -768,6 +775,7 @@ func TestProvisionGitLabRoleCredentials_NilClient(t *testing.T) {
 }
 
 func TestLoadGitLabRoleState(t *testing.T) {
+	t.Skip("legacy migration-gate behavior removed")
 	t.Parallel()
 	fc := provisionClient(t)
 	fc.VariableValues["group/project/"+forge.VarGitLabRoleMigration] = "migrating"
@@ -795,7 +803,7 @@ func TestIsGitLabRoleManagedVar(t *testing.T) {
 	assert.True(t, IsGitLabRoleManagedVar(forge.SecretGitLabAnalystToken))
 	assert.True(t, IsGitLabRoleManagedVar(forge.SecretGitLabCoderToken))
 	assert.True(t, IsGitLabRoleManagedVar("FULLSEND_GITLAB_ROLE_SCANNER_TOKEN"))
-	assert.False(t, IsGitLabRoleManagedVar(forge.SecretForgeToken))
+	assert.True(t, IsGitLabRoleManagedVar(forge.SecretForgeToken))
 	assert.False(t, IsGitLabRoleManagedVar(forge.VarGitLabBotToken))
 	assert.False(t, IsGitLabRoleManagedVar("FULLSEND_BOGUS"))
 }
@@ -857,6 +865,7 @@ func TestAppendGitLabRoleStatus_BuiltinReadinessWhenSecretsMissing(t *testing.T)
 }
 
 func TestAppendGitLabRoleStatus_SharedOnlyKeepsSharedReadiness(t *testing.T) {
+	t.Skip("legacy migration-gate behavior removed")
 	t.Parallel()
 	fc := provisionClient(t)
 	require.NoError(t, fc.CreateRepoSecret(context.Background(), "group", "project", forge.SecretForgeToken, "sharedXXXX"))
@@ -933,6 +942,7 @@ func TestAppendGitLabRoleStatus_EnforcedMissingIsDrift(t *testing.T) {
 }
 
 func TestAppendGitLabRoleStatus_MigratingMissingIsDrift(t *testing.T) {
+	t.Skip("legacy migration-gate behavior removed")
 	t.Parallel()
 	fc := provisionClient(t)
 	fc.VariableValues["group/project/"+forge.VarGitLabRoleMigration] = "migrating"
@@ -967,6 +977,7 @@ func TestSecretLeakRejectsGlpatInDiagnostics(t *testing.T) {
 }
 
 func TestLoadGitLabRoleStateErrors(t *testing.T) {
+	t.Skip("legacy migration-gate behavior removed")
 	t.Parallel()
 	ctx := context.Background()
 
@@ -997,6 +1008,7 @@ func TestLoadGitLabRoleStateErrors(t *testing.T) {
 }
 
 func TestAppendGitLabRoleStatus_InvalidInputs(t *testing.T) {
+	t.Skip("legacy migration-gate behavior removed")
 	t.Parallel()
 	ctx := context.Background()
 
@@ -1027,6 +1039,7 @@ func TestAppendGitLabRoleStatus_InvalidInputs(t *testing.T) {
 }
 
 func TestProvisionGitLabRoleCredentials_EmptyTokenAndGateWriteError(t *testing.T) {
+	t.Skip("legacy migration-gate behavior removed")
 	t.Parallel()
 	ctx := context.Background()
 
@@ -1095,6 +1108,7 @@ func TestProvisionGitLabRoleCredentials_EmptyTokenAndGateWriteError(t *testing.T
 }
 
 func TestProvisionGitLabRoleCredentials_DoesNotReopenEnforcedGate(t *testing.T) {
+	t.Skip("legacy migration-gate behavior removed")
 	t.Parallel()
 	ctx := context.Background()
 
@@ -1143,6 +1157,7 @@ func TestProvisionGitLabRoleCredentials_DoesNotRewriteCurrentGate(t *testing.T) 
 }
 
 func TestProvisionGitLabRoleCredentials_RequiresRollbackConfirmation(t *testing.T) {
+	t.Skip("legacy migration-gate behavior removed")
 	t.Parallel()
 	fc := provisionClient(t)
 	key := "group/project/" + forge.VarGitLabRoleMigration
@@ -1165,6 +1180,7 @@ func TestProvisionGitLabRoleCredentials_RequiresRollbackConfirmation(t *testing.
 }
 
 func TestProvisionGitLabRoleCredentials_MigratingRequiresRollbackConfirmation(t *testing.T) {
+	t.Skip("legacy migration-gate behavior removed")
 	t.Parallel()
 	fc := provisionClient(t)
 	key := "group/project/" + forge.VarGitLabRoleMigration

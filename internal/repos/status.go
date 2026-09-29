@@ -33,15 +33,36 @@ func ProbeRepoState(ctx context.Context, client forge.Client, owner, repo, forge
 	}
 
 	// Check required components — these distinguish per-repo from per-org.
-	// GitHub uses FULLSEND_MINT_URL. GitLab poller state no longer lives
-	// in CI/CD variables, so install evidence is the bot token or a poll
-	// schedule. Poll-state branch presence alone is deliberately not
+	// GitHub uses FULLSEND_MINT_URL. GitLab install evidence is its workflow
+	// carrier, legacy shared token, or a poll schedule. Poll-state branch
+	// presence alone is deliberately not
 	// treated as install evidence: uninstall deletes the bot token and
 	// pipeline schedules but does not yet delete the poll-state branches
 	// (deferred to #7381), so a leftover branch from a prior install
 	// would otherwise misclassify an uninstalled repo as installed.
 	hasRequiredComponent := false
 	state := RepoState{}
+	roleSecretPresent := false
+	if forgeName == ForgeGitLab {
+		// Keep legacy shared-token installations discoverable while requiring
+		// role-only installations to present a workflow or schedule carrier.
+		exists, err := client.RepoSecretExists(ctx, owner, repo, forge.SecretForgeToken)
+		if err != nil {
+			return RepoState{}, fmt.Errorf("checking secret %s: %w", forge.SecretForgeToken, err)
+		}
+		hasRequiredComponent = exists
+		for _, name := range []string{
+			forge.SecretGitLabPollerToken,
+			forge.SecretGitLabAnalystToken,
+			forge.SecretGitLabCoderToken,
+		} {
+			exists, err := client.RepoSecretExists(ctx, owner, repo, name)
+			if err != nil {
+				return RepoState{}, fmt.Errorf("checking secret %s: %w", name, err)
+			}
+			roleSecretPresent = roleSecretPresent || exists
+		}
+	}
 	for _, c := range components {
 		// Capture the version marker even when the current carrier is
 		// missing: GitLab repos enrolled before #7707 still host it in
@@ -55,6 +76,8 @@ func ProbeRepoState(ctx context.Context, client forge.Client, owner, repo, forge
 			continue
 		}
 		switch {
+		case forgeName == ForgeGitLab && c.Name == "workflow" && roleSecretPresent:
+			hasRequiredComponent = true
 		case c.Name == "var:"+forge.VarMintURL:
 			hasRequiredComponent = true
 			state.MintURL = c.Actual

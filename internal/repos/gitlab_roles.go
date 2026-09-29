@@ -110,12 +110,12 @@ func GitLabPATExpiresAt(now time.Time) string {
 }
 
 // IsGitLabRoleManagedVar reports whether a FULLSEND_* CI/CD variable is
-// a GitLab role-credential artifact (gate, registry, built-in or custom
-// role secret). These are managed, not orphans, and are removed on
-// uninstall.
+// a GitLab role-credential artifact (registry, built-in or custom role
+// secret), or the legacy shared token. These are managed, not orphans, and
+// are removed on uninstall.
 func IsGitLabRoleManagedVar(name string) bool {
 	switch name {
-	case forge.VarGitLabRoleMigration, forge.VarGitLabRoleRegistry,
+	case forge.SecretForgeToken, forge.VarGitLabRoleMigration, forge.VarGitLabRoleRegistry,
 		forge.VarGitLabRoleRotation,
 		forge.SecretGitLabPollerToken, forge.SecretGitLabAnalystToken,
 		forge.SecretGitLabCoderToken:
@@ -176,13 +176,11 @@ func ProvisionGitLabRoleCredentials(ctx context.Context, cfg RoleProvisionConfig
 	operationLock := gitlabRoleOperationLock(cfg.Owner, cfg.Repo)
 	operationLock.Lock()
 	defer operationLock.Unlock()
-	mode := cfg.DesiredMode
-	if mode == "" {
-		mode = gitlabroles.ModeMigrating
-	}
-	if !mode.Valid() {
-		return result, fmt.Errorf("%w: %q", gitlabroles.ErrInvalidMode, mode)
-	}
+	// Role credentials are now the only supported GitLab identity path.
+	// Keep the legacy Mode field in the result for source compatibility with
+	// callers and old status consumers, but never read or write the migration
+	// gate.
+	mode := gitlabroles.ModeEnforced
 	result.Mode = mode
 	reg := cfg.Registry
 	if len(reg.Registrations()) == 0 {
@@ -193,21 +191,11 @@ func ProvisionGitLabRoleCredentials(ctx context.Context, cfg RoleProvisionConfig
 	if presErr != nil {
 		return result, fmt.Errorf("reading GitLab role credential presence: %w", presErr)
 	}
-
-	// Write the gate (and registry) before creating any role tokens. If the
-	// gate write fails, no tokens are created and nothing is orphaned. If
-	// token creation subsequently fails partway through, the gate already
-	// reflects the desired mode, so a follow-up unflagged `repos install`
-	// sees the live gate as migrating/enforced and retries the missing
-	// roles instead of treating the repo as still on the legacy path.
-	skipTokens := mode.UsesSharedOnly()
-	if err := writeGitLabRoleGate(ctx, cfg, mode, skipTokens, &result); err != nil {
+	if err := writeGitLabRoleRegistry(ctx, cfg, &result); err != nil {
 		return result, err
 	}
 
-	if !skipTokens {
-		provisionOwnRoles(ctx, cfg, reg, present, &result)
-	}
+	provisionOwnRoles(ctx, cfg, reg, present, &result)
 
 	present, presErr = gitLabRolePresence(ctx, cfg.Client, cfg.Owner, cfg.Repo, reg)
 	if presErr != nil {
@@ -215,10 +203,6 @@ func ProvisionGitLabRoleCredentials(ctx context.Context, cfg RoleProvisionConfig
 	}
 	result.Report = gitlabroles.Diagnose(mode, present, reg)
 	result.Diagnostics = result.Report.Diagnostics
-	if skipTokens && (cfg.RegistryProvided || len(cfg.ProvidedTokens) > 0) {
-		result.Diagnostics = append(result.Diagnostics, fmt.Sprintf(
-			"--gitlab-role-registry/--gitlab-role-token input was ignored: GitLab role migration gate is %q, so role credentials are not minted or persisted", mode))
-	}
 	if secretLeak(result) != "" {
 		return RoleProvisionResult{SharedPreserved: true}, fmt.Errorf("internal error: provision result leaked a secret value")
 	}
@@ -368,41 +352,9 @@ func provisionOwnRoles(ctx context.Context, cfg RoleProvisionConfig, reg gitlabr
 	}
 }
 
-func writeGitLabRoleGate(ctx context.Context, cfg RoleProvisionConfig, mode gitlabroles.Mode, skipTokens bool, result *RoleProvisionResult) error {
+func writeGitLabRoleRegistry(ctx context.Context, cfg RoleProvisionConfig, result *RoleProvisionResult) error {
 	if cfg.DryRun {
-		result.GateWritten = true
-		if !skipTokens {
-			result.RegistryWritten = true
-		}
-		return nil
-	}
-	// ProvisionGitLabRoleCredentials holds gitlabRoleOperationLock while it
-	// calls this helper. Re-read the gate inside that lock so a stale mode
-	// sampled by the caller cannot overwrite a concurrent cutover. Once the
-	// gate is enforced, only an explicit rollback operation may replace it;
-	// ordinary provisioning must never reopen the shared-token path.
-	liveRaw, _, err := cfg.Client.GetRepoVariable(ctx, cfg.Owner, cfg.Repo, forge.VarGitLabRoleMigration)
-	if err != nil {
-		return fmt.Errorf("reading %s before write: %w", forge.VarGitLabRoleMigration, err)
-	}
-	liveMode, parseErr := gitlabroles.ParseMode(liveRaw)
-	if parseErr == nil && liveMode == gitlabroles.ModeEnforced && mode == gitlabroles.ModeMigrating {
-		return fmt.Errorf("refusing to replace enforced %s with migrating; request rollback explicitly", forge.VarGitLabRoleMigration)
-	}
-	if parseErr == nil && liveMode.RequiresRoleCredentials() && mode.UsesSharedOnly() && !cfg.RollbackConfirmed {
-		return fmt.Errorf("leaving role-required %s requires explicit rollback confirmation", forge.VarGitLabRoleMigration)
-	}
-	if parseErr == nil && liveMode == mode {
-		// Avoid rewriting an already-current gate. This decision is made
-		// while holding the per-repository operation lock.
-		result.GateWritten = true
-	} else {
-		if err := cfg.Client.UpdateCIVariable(ctx, cfg.Owner, cfg.Repo, forge.VarGitLabRoleMigration, string(mode), true); err != nil {
-			return fmt.Errorf("writing %s: %w", forge.VarGitLabRoleMigration, err)
-		}
-		result.GateWritten = true
-	}
-	if skipTokens {
+		result.RegistryWritten = true
 		return nil
 	}
 	raw, err := gitlabroles.MarshalCustomRoles(cfg.Registry)
@@ -416,30 +368,24 @@ func writeGitLabRoleGate(ctx context.Context, cfg RoleProvisionConfig, mode gitl
 	return nil
 }
 
-// LoadGitLabRoleState reads the migration gate, registry, and per-secret
-// presence from a repository. Secret values are never retained.
+// LoadGitLabRoleState reads the registered role policy and per-secret
+// presence from a repository. The migration gate is legacy state and is
+// deliberately ignored; the returned mode is retained only for callers that
+// still expose the old result shape.
 func LoadGitLabRoleState(ctx context.Context, client forge.Client, owner, repo string) (gitlabroles.Mode, gitlabroles.Registry, map[string]bool, error) {
-	modeRaw, _, err := client.GetRepoVariable(ctx, owner, repo, forge.VarGitLabRoleMigration)
-	if err != nil {
-		return "", gitlabroles.Registry{}, nil, fmt.Errorf("reading %s: %w", forge.VarGitLabRoleMigration, err)
-	}
-	mode, err := gitlabroles.ParseMode(modeRaw)
-	if err != nil {
-		return "", gitlabroles.Registry{}, nil, err
-	}
 	regRaw, _, err := client.GetRepoVariable(ctx, owner, repo, forge.VarGitLabRoleRegistry)
 	if err != nil {
-		return mode, gitlabroles.Registry{}, nil, fmt.Errorf("reading %s: %w", forge.VarGitLabRoleRegistry, err)
+		return gitlabroles.ModeEnforced, gitlabroles.Registry{}, nil, fmt.Errorf("reading %s: %w", forge.VarGitLabRoleRegistry, err)
 	}
 	reg, err := gitlabroles.ParseRegistry(regRaw)
 	if err != nil {
-		return mode, gitlabroles.Registry{}, nil, err
+		return gitlabroles.ModeEnforced, gitlabroles.Registry{}, nil, err
 	}
 	present, err := gitLabRolePresence(ctx, client, owner, repo, reg)
 	if err != nil {
-		return mode, reg, nil, err
+		return gitlabroles.ModeEnforced, reg, nil, err
 	}
-	return mode, reg, present, nil
+	return gitlabroles.ModeEnforced, reg, present, nil
 }
 
 func gitLabRolePresence(ctx context.Context, client forge.Client, owner, repo string, reg gitlabroles.Registry) (map[string]bool, error) {

@@ -279,11 +279,22 @@ func TestResolveAuthFailureNeverFallsBack(t *testing.T) {
 	}
 }
 
-func TestResolveInvalidMode(t *testing.T) {
+func TestResolveInvalidModeStillRequiresRoleSecret(t *testing.T) {
 	t.Parallel()
 	_, err := Resolve(Request{Mode: Mode("weird"), Job: PollerJob(), Present: map[string]bool{forge.SecretForgeToken: true}})
 	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrInvalidMode)
+	assert.ErrorIs(t, err, ErrUnconfigured)
+	assert.NotErrorIs(t, err, ErrInvalidMode)
+	assert.Contains(t, err.Error(), forge.SecretGitLabPollerToken)
+
+	src, err := Resolve(Request{
+		Mode:    Mode("weird"),
+		Job:     PollerJob(),
+		Present: map[string]bool{forge.SecretGitLabPollerToken: true},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, forge.SecretGitLabPollerToken, src.SecretName)
+	assert.False(t, src.Shared)
 }
 
 func TestResolveUnknownKind(t *testing.T) {

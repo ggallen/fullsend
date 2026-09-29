@@ -62,5 +62,5 @@ Leftover `disabled` and explicit `rollback` no longer authenticate as the
 shared `fullsend-bot` identity at runtime. Role registration is
 install-state only; repository and merge-request content cannot create or
 elevate a GitLab role.
-The explicit [`--gitlab-role-cutover --gitlab-role-cutover-drained`](../cli/repos.md#gitlab-role-cutover)
-operation remains a fail-closed retry of that same cutover.
+Role credentials are provisioned and the legacy shared credential is retired
+automatically once all registered roles are ready.

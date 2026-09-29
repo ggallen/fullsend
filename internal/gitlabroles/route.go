@@ -21,9 +21,11 @@ var ErrCapabilityDenied = errors.New("GitLab role lacks required capability")
 // so callers must verify the two agree before trusting Require's result.
 var ErrIdentityMismatch = errors.New("authenticating GitLab token does not match selected role credential")
 
-// Selection is the dispatch-time result of loading the migration gate,
-// trusted registry, and secret-presence map, then resolving a job to a
-// credential. Diagnostics and Error values carry secret *names* only.
+// Selection is the dispatch-time result of loading the trusted registry
+// and secret-presence map, then resolving a job to a credential.
+// Diagnostics and Error values carry secret *names* only. Mode is not
+// populated by Select; it remains on the struct for callers that still
+// construct a Selection in tests.
 type Selection struct {
 	Mode         Mode
 	Job          Job
@@ -33,23 +35,20 @@ type Selection struct {
 	Present      map[string]bool
 }
 
-// Select loads ModeFrom, LoadRegistry, and PresenceFrom via getenv
-// (nil means os.Getenv), then resolves job. An unmapped agent name is
-// always rejected with ValidateAgent before Resolve so unregistered
-// custom agents fail closed rather than guessing an identity.
+// Select loads LoadRegistry and PresenceFrom via getenv (nil means
+// os.Getenv), then resolves job. It does not read
+// FULLSEND_GITLAB_ROLE_MIGRATION. An unmapped agent name is always
+// rejected with ValidateAgent before Resolve so unregistered custom
+// agents fail closed rather than guessing an identity.
 func Select(job Job, getenv func(string) string) (Selection, error) {
 	if getenv == nil {
 		getenv = os.Getenv
-	}
-	mode, err := ModeFrom(getenv)
-	if err != nil {
-		return Selection{}, err
 	}
 	reg, err := LoadRegistry(getenv)
 	if err != nil {
 		return Selection{}, err
 	}
-	return selectResolved(mode, job, reg, getenv)
+	return selectResolved(job, reg, getenv)
 }
 
 // SelectAgent maps a running agent onto a registered identity and
@@ -61,15 +60,11 @@ func SelectAgent(agentName, harnessRole string, getenv func(string) string) (Sel
 	if getenv == nil {
 		getenv = os.Getenv
 	}
-	mode, err := ModeFrom(getenv)
-	if err != nil {
-		return Selection{}, err
-	}
 	reg, err := LoadRegistry(getenv)
 	if err != nil {
 		return Selection{}, err
 	}
-	return selectResolved(mode, JobForAgent(reg, agentName, harnessRole), reg, getenv)
+	return selectResolved(JobForAgent(reg, agentName, harnessRole), reg, getenv)
 }
 
 // JobForAgent maps a running agent onto a Job. Prefer the agent name
@@ -88,20 +83,19 @@ func JobForAgent(reg Registry, agentName, harnessRole string) Job {
 	return AgentJob(agentName)
 }
 
-func selectResolved(mode Mode, job Job, reg Registry, getenv func(string) string) (Selection, error) {
+func selectResolved(job Job, reg Registry, getenv func(string) string) (Selection, error) {
 	switch job.Kind {
 	case KindPoller:
 		// Always registered as RolePoller.
 	case KindAgent:
 		if err := reg.ValidateAgent(job.Name); err != nil {
-			return Selection{}, &Error{Mode: mode, Err: err}
+			return Selection{}, &Error{Err: err}
 		}
 	default:
-		return Selection{}, &Error{Mode: mode, Err: ErrUnknownJob}
+		return Selection{}, &Error{Err: ErrUnknownJob}
 	}
 	present := PresenceFrom(getenv, reg)
 	src, err := Resolve(Request{
-		Mode:     mode,
 		Job:      job,
 		Registry: reg,
 		Present:  present,
@@ -110,7 +104,6 @@ func selectResolved(mode Mode, job Job, reg Registry, getenv func(string) string
 		return Selection{}, err
 	}
 	return Selection{
-		Mode:         mode,
 		Job:          job,
 		Source:       src,
 		Registration: registrationForSource(reg, src),
@@ -175,8 +168,8 @@ func (s Selection) Diagnostics() []string {
 		kind = "none"
 	}
 	lines := []string{
-		fmt.Sprintf("GitLab identity role=%s kind=%s source=%s secret=%s mode=%s",
-			role, kind, s.IdentitySource(), s.Source.SecretName, s.Mode),
+		fmt.Sprintf("GitLab identity role=%s kind=%s source=%s secret=%s",
+			role, kind, s.IdentitySource(), s.Source.SecretName),
 	}
 	if s.Source.Reason != "" {
 		lines = append(lines, "GitLab identity: "+s.Source.Reason)
