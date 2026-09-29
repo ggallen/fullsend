@@ -55,7 +55,6 @@ func TestResolveGitLabPollerCredentialMissingRoleFailsClosed(t *testing.T) {
 	_, _, err := resolveGitLabPollerCredential(mapGetenv(map[string]string{forge.SecretForgeToken: "glpat-SHARED"}))
 	require.Error(t, err)
 	assert.ErrorIs(t, err, gitlabroles.ErrUnconfigured)
-	assert.NotErrorIs(t, err, gitlabroles.ErrSharedUnconfigured)
 	assert.Contains(t, err.Error(), forge.SecretGitLabPollerToken)
 }
 
@@ -317,7 +316,6 @@ func TestCheckGitLabApprovalCapability(t *testing.T) {
 func TestWrapGitLabAuthFailureDoesNotSwitchIdentity(t *testing.T) {
 	t.Parallel()
 	sel := gitlabroles.Selection{
-		Mode: gitlabroles.ModeMigrating,
 		Source: gitlabroles.Source{
 			Role:       gitlabroles.RoleAnalyst,
 			SecretName: forge.SecretGitLabAnalystToken,
@@ -364,7 +362,6 @@ func TestApplyGitLabRoleSelectionNilSetenv(t *testing.T) {
 	t.Setenv(envGitLabRoleSource, "")
 	t.Setenv("PUSH_TOKEN", "leftover")
 	sel := gitlabroles.Selection{
-		Mode: gitlabroles.ModeDisabled,
 		Source: gitlabroles.Source{
 			Role:       gitlabroles.RolePoller,
 			SecretName: forge.SecretGitLabPollerToken,

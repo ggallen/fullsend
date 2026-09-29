@@ -409,22 +409,19 @@ func TestSetupGitLabRoleCredentials_FakeClientPartialAndNoLeak(t *testing.T) {
 
 func TestShowGitLabRoleStatus(t *testing.T) {
 	assert.False(t, showGitLabRoleStatus(repos.RepoStatus{}))
-	assert.False(t, showGitLabRoleStatus(repos.RepoStatus{
-		GitLabRoleMode:        "disabled",
-		GitLabRoleDiagnostics: []string{"mode=disabled"},
+	// Any role diagnostic must remain visible in the status table.
+	assert.True(t, showGitLabRoleStatus(repos.RepoStatus{
+		GitLabRoleDiagnostics: []string{"role credentials incomplete"},
 	}))
 	assert.True(t, showGitLabRoleStatus(repos.RepoStatus{
-		GitLabRoleMode:        "migrating",
-		GitLabRoleDiagnostics: []string{"mode=migrating"},
+		GitLabRoleDiagnostics: []string{"role credentials pending"},
 	}))
 	assert.True(t, showGitLabRoleStatus(repos.RepoStatus{
-		GitLabRoleMode:        "disabled",
 		GitLabRolesPartial:    true,
 		GitLabRoleDiagnostics: []string{"partial"},
 	}))
-	// GitLabRoleMode is left empty by appendGitLabRoleStatus on a
-	// parse/read/registry error, but a diagnostic is still recorded — the
-	// table view must surface it, not just JSON output.
+	// A parse/read/registry error still records a diagnostic — the table view
+	// must surface it, not just JSON output.
 	assert.True(t, showGitLabRoleStatus(repos.RepoStatus{
 		GitLabRoleDiagnostics: []string{"invalid GitLab role registry"},
 	}))
@@ -461,8 +458,7 @@ func TestPrintGitLabRoleProvisionCoversBranches(t *testing.T) {
 		Skipped:     []gitlabroles.Role{gitlabroles.RoleCoder},
 		Reused:      []gitlabroles.Role{gitlabroles.Role("deployer")},
 		Failed:      []repos.RoleProvisionFailure{{Role: gitlabroles.Role("scanner"), Secret: "FULLSEND_GITLAB_ROLE_SCANNER_TOKEN", Reason: "pending"}},
-		Mode:        gitlabroles.ModeMigrating,
-		Diagnostics: []string{"mode=migrating"},
+		Diagnostics: []string{"role credentials pending"},
 	})
 	out := buf.String()
 	assert.Contains(t, out, "Would create poller")
@@ -470,7 +466,7 @@ func TestPrintGitLabRoleProvisionCoversBranches(t *testing.T) {
 	assert.Contains(t, out, "coder role credential already present")
 	assert.Contains(t, out, "deployer reuses")
 	assert.Contains(t, out, "scanner role credential pending")
-	assert.Contains(t, out, "mode=migrating")
+	assert.Contains(t, out, "role credentials pending")
 	assert.NotContains(t, out, "glpat-")
 }
 
@@ -526,7 +522,7 @@ func TestSetupGitLabRoleCredentials_RegistryReadError(t *testing.T) {
 }
 
 // maybeCutoverGitLabRoles, gitLabRoleWorkNeeded's mode-dependent branches,
-// and ProvisionGitLabRoleCredentials's migration-gate write path were
+// and ProvisionGitLabCredentials' historical-state write path were
 // removed: registered role credentials are now the only supported runtime
 // path (#7782 PR2), so the CLI no longer reads, writes, or branches on
 // FULLSEND_GITLAB_ROLE_MIGRATION. The tests that exercised those branches
@@ -572,7 +568,7 @@ func TestPrintGitLabRoleRotateCoversBranches(t *testing.T) {
 			Role: gitlabroles.RolePoller, Secret: forge.SecretGitLabPollerToken,
 			Reason: "storing replacement credential failed",
 		}},
-		Diagnostics: []string{"mode=migrating"},
+		Diagnostics: []string{"role credentials pending"},
 		DryRun:      true,
 	})
 	out := buf.String()
@@ -589,11 +585,9 @@ func TestPrintGitLabRoleRotateCoversBranches(t *testing.T) {
 
 func TestAnnotateGitLabRoleLifecycleSkipsNonLiveClient(t *testing.T) {
 	result := &repos.StatusResult{Repos: []repos.RepoStatus{{
-		Owner: "group", Repo: "project", GitLabRoleMode: "migrating",
-		GitLabRoleDiagnostics: []string{"mode=migrating"},
+		Owner: "group", Repo: "project", GitLabRoleDiagnostics: []string{"role credentials pending"},
 	}}}
 	annotateGitLabRoleLifecycle(context.Background(), nil, result)
-	assert.Equal(t, "migrating", result.Repos[0].GitLabRoleMode)
 }
 
 func TestAnnotateGitLabRoleLifecycleDoesNotDoubleCountDrifted(t *testing.T) {
@@ -631,8 +625,7 @@ func TestAnnotateGitLabRoleLifecycleDoesNotDoubleCountDrifted(t *testing.T) {
 	t.Run("repo already counted as drifted is not double-counted", func(t *testing.T) {
 		result := &repos.StatusResult{
 			Repos: []repos.RepoStatus{{
-				Owner: "group", Repo: "project-a", GitLabRoleMode: "enforced",
-				Drifts: []repos.Drift{{Field: "current_ref", Expected: "a", Actual: "b"}},
+				Owner: "group", Repo: "project-a", Drifts: []repos.Drift{{Field: "current_ref", Expected: "a", Actual: "b"}},
 			}},
 			Summary: repos.StatusSummary{Drifted: 1},
 		}
@@ -644,8 +637,7 @@ func TestAnnotateGitLabRoleLifecycleDoesNotDoubleCountDrifted(t *testing.T) {
 	t.Run("repo with no prior drift is counted once on the new drift", func(t *testing.T) {
 		result := &repos.StatusResult{
 			Repos: []repos.RepoStatus{{
-				Owner: "group", Repo: "project-b", GitLabRoleMode: "enforced",
-			}},
+				Owner: "group", Repo: "project-b"}},
 			Summary: repos.StatusSummary{Drifted: 0},
 		}
 		annotateGitLabRoleLifecycle(ctx, clients, result)
@@ -901,8 +893,7 @@ func TestAnnotateGitLabRoleLifecycleReportsPipelineRefDrift(t *testing.T) {
 
 	result := &repos.StatusResult{
 		Repos: []repos.RepoStatus{{
-			Owner: "group", Repo: "project", GitLabRoleMode: "migrating",
-		}},
+			Owner: "group", Repo: "project"}},
 	}
 	annotateGitLabRoleLifecycle(ctx, newSingleClientFactory(glClient), result)
 	assert.True(t, varsCalled, "variables handler was not called")
@@ -1018,8 +1009,7 @@ func TestAnnotateGitLabRoleLifecyclePipelineRefWithoutTokenList(t *testing.T) {
 
 	result := &repos.StatusResult{
 		Repos: []repos.RepoStatus{{
-			Owner: "group", Repo: "project", GitLabRoleMode: "migrating",
-		}},
+			Owner: "group", Repo: "project"}},
 	}
 	annotateGitLabRoleLifecycle(ctx, newSingleClientFactory(glClient), result)
 	assert.True(t, tokensCalled, "access_tokens handler was not called")

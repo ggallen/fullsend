@@ -23,11 +23,8 @@ var ErrIdentityMismatch = errors.New("authenticating GitLab token does not match
 
 // Selection is the dispatch-time result of loading the trusted registry
 // and secret-presence map, then resolving a job to a credential.
-// Diagnostics and Error values carry secret *names* only. Mode is not
-// populated by Select; it remains on the struct for callers that still
-// construct a Selection in tests.
+// Diagnostics and Error values carry secret *names* only.
 type Selection struct {
-	Mode         Mode
 	Job          Job
 	Source       Source
 	Registration Registration
@@ -37,8 +34,8 @@ type Selection struct {
 
 // Select loads LoadRegistry and PresenceFrom via getenv (nil means
 // os.Getenv), then resolves job. It does not read
-// FULLSEND_GITLAB_ROLE_MIGRATION. An unmapped agent name is always
-// rejected with ValidateAgent before Resolve so unregistered custom
+// Migration state is not read. An unmapped agent name is always rejected
+// with ValidateAgent before Resolve so unregistered custom
 // agents fail closed rather than guessing an identity.
 func Select(job Job, getenv func(string) string) (Selection, error) {
 	if getenv == nil {
@@ -130,30 +127,22 @@ func (s Selection) Token(getenv func(string) string) (string, error) {
 		getenv = os.Getenv
 	}
 	if s.Source.SecretName == "" {
-		return "", &Error{Mode: s.Mode, Err: ErrUnconfigured}
+		return "", &Error{Err: ErrUnconfigured}
 	}
 	token := strings.TrimSpace(getenv(s.Source.SecretName))
 	if token == "" {
-		err := ErrUnconfigured
-		if s.Source.Shared {
-			err = ErrSharedUnconfigured
-		}
 		return "", &Error{
 			Role:   s.Source.Role,
-			Mode:   s.Mode,
 			Secret: s.Source.SecretName,
-			Err:    err,
+			Err:    ErrUnconfigured,
 		}
 	}
 	return token, nil
 }
 
 // IdentitySource is a non-secret label for how the credential was
-// chosen: "role" or "shared".
-func (s Selection) IdentitySource() string {
-	if s.Source.Shared {
-		return "shared"
-	}
+// chosen. Runtime selection is role-only, so this is always "role".
+func (Selection) IdentitySource() string {
 	return "role"
 }
 
@@ -194,6 +183,6 @@ func Require(rec Registration, cap Capability) error {
 // AuthFailed is the fail-closed annotation for a runtime 401/403 (or
 // equivalent) of a selected credential. Callers must not Resolve again
 // with a different job or a cleared FailedSecret.
-func AuthFailed(role Role, mode Mode, secret string) error {
-	return &Error{Role: role, Mode: mode, Secret: secret, Err: ErrAuthFailed}
+func AuthFailed(role Role, secret string) error {
+	return &Error{Role: role, Secret: secret, Err: ErrAuthFailed}
 }

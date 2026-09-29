@@ -1,5 +1,5 @@
-// Package gitlabroles defines the GitLab role-credential contract and
-// the remaining role-identity gate (#7497, #7559).
+// Package gitlabroles defines the GitLab role-credential contract
+// (#7497, #7559, #7782).
 //
 // Built-in Poller, Analyst, and Coder identities and administrator-
 // registered custom roles are the same kind of Registry entry. Resolve
@@ -12,18 +12,11 @@
 // poll, fullsend run, and post-review. DiagnoseLifecycle reports
 // expiry, revocation, and overlapping tokens. CheckBuiltinReadiness
 // is the #7501 verification for Poller, Analyst, and Coder; it does
-// not enable enforced mode or retire the shared token.
+// not perform legacy credential cleanup.
 //
 // Runtime authentication is role-credential only: Resolve and Select
-// select the registered role credential and never FULLSEND_FORGE_TOKEN.
-// They do not read FULLSEND_GITLAB_ROLE_MIGRATION. Leftover, migrating,
-// enforced, rollback, and invalid gate values are ignored at dispatch.
-// Mode is obsolete, legacy state: ordinary repos install and convergence
-// (ProvisionGitLabRoleCredentials, LoadGitLabRoleState) hardcode
-// ModeEnforced and never read or write FULLSEND_GITLAB_ROLE_MIGRATION.
-// ParseMode and Diagnose retain the type only for backward compatibility
-// with callers and status consumers that still expect the old result
-// shape.
+// select the registered role credential and never read a shared token or
+// migration state.
 //
 // Canonical documentation: docs/contributing/gitlab-role-credentials.md.
 package gitlabroles
@@ -33,39 +26,6 @@ import (
 	"fmt"
 	"os"
 	"strings"
-
-	"github.com/fullsend-ai/fullsend/internal/forge"
-)
-
-// Mode is the role-identity gate stored in FULLSEND_GITLAB_ROLE_MIGRATION.
-// Absent or empty is ModeDisabled (leftover shared-token install state).
-// Runtime credential selection does not switch on Mode.
-type Mode string
-
-// These Mode values are legacy state: the CLI flags that used to set them
-// (--gitlab-role-migration, --gitlab-role-rollback-confirmed, and related
-// cutover/rollback flags) have been removed, and ordinary repos install and
-// convergence hardcode ModeEnforced rather than reading or writing any of
-// them. They are retained only for callers and status consumers that still
-// expect the old Mode-typed result shape.
-const (
-	// ModeDisabled was leftover shared-token install state (unset gate or
-	// an historical disabled value). Runtime jobs still require a
-	// provisioned role credential.
-	ModeDisabled Mode = "disabled"
-	// ModeMigrating was the internal install intermediate written while
-	// role credentials were being provisioned, before cutover enabled
-	// enforced. Jobs require a provisioned role credential; there is no
-	// shared-token fallback.
-	ModeMigrating Mode = "migrating"
-	// ModeRollback was the operator-initiated emergency recovery path.
-	// Runtime jobs still require a provisioned role credential; the
-	// shared token is not selected.
-	ModeRollback Mode = "rollback"
-	// ModeEnforced requires a provisioned role credential. The shared
-	// token is not used. Ordinary repos install and convergence always
-	// treat the repo as this mode.
-	ModeEnforced Mode = "enforced"
 )
 
 // Kind identifies the job that needs a GitLab credential.
@@ -107,10 +67,6 @@ const (
 // provisioned", and "authentication failed" with errors.Is. Error
 // strings and the Error type carry secret *names* only, never values.
 
-// ErrInvalidMode indicates FULLSEND_GITLAB_ROLE_MIGRATION holds a value
-// that is not one of the four defined modes.
-var ErrInvalidMode = errors.New("invalid GitLab role migration mode")
-
 // ErrInvalidRegistry indicates FULLSEND_GITLAB_ROLE_REGISTRY failed to
 // parse or validate as a role registry document.
 var ErrInvalidRegistry = errors.New("invalid GitLab role registry")
@@ -127,20 +83,15 @@ var ErrUnregistered = errors.New("GitLab role is not registered")
 // not yet provisioned.
 var ErrUnconfigured = errors.New("GitLab role credential is not provisioned")
 
-// ErrSharedUnconfigured indicates the shared FULLSEND_FORGE_TOKEN
-// credential is not provisioned.
-var ErrSharedUnconfigured = errors.New("shared GitLab credential is not provisioned")
-
 // ErrAuthFailed indicates a role credential already failed
 // authentication during this job; Resolve never switches identities
 // after this.
 var ErrAuthFailed = errors.New("GitLab role credential authentication failed")
 
-// Error annotates a sentinel with the role, mode, and secret name
+// Error annotates a sentinel with the role and secret name
 // involved. Secret is a CI/CD variable name, never a token value.
 type Error struct {
 	Role   Role
-	Mode   Mode
 	Secret string
 	Err    error
 }
@@ -153,9 +104,6 @@ func (e *Error) Error() string {
 	b.WriteString(e.Err.Error())
 	if e.Role != "" {
 		fmt.Fprintf(&b, ": role %q", e.Role)
-	}
-	if e.Mode != "" {
-		fmt.Fprintf(&b, ": mode %q", e.Mode)
 	}
 	if e.Secret != "" {
 		fmt.Fprintf(&b, ": secret %s", e.Secret)
@@ -191,11 +139,7 @@ func AgentJob(name string) Job {
 // Request is the input to Resolve. Present maps secret/variable names
 // to whether they are non-empty; it must never contain secret values.
 type Request struct {
-	// Mode is ignored for credential selection. Select does not set it.
-	// Callers that still pass a gate value get it copied onto Error for
-	// install/status annotation only.
-	Mode Mode
-	Job  Job
+	Job Job
 	// Registry is the trusted allowlist. The zero value means built-in
 	// roles only (existing installations).
 	Registry Registry
@@ -203,7 +147,7 @@ type Request struct {
 	Present map[string]bool
 	// FailedSecret is a secret *name* that already failed authentication
 	// during this job. When set, Resolve refuses to select any other
-	// identity, including the shared token.
+	// identity.
 	FailedSecret string
 }
 
@@ -213,7 +157,6 @@ type Source struct {
 	Role       Role
 	Kind       RoleKind
 	SecretName string
-	Shared     bool
 	Reused     bool
 	Reason     string
 }
@@ -234,34 +177,21 @@ type RoleReport struct {
 	Overlapping bool
 }
 
-// Report is the observable migration/role status. Diagnostics never
+// Report is the observable role status. Diagnostics never
 // include secret values.
 //
 // Ready is true only when every registered role credential is present,
-// in every mode, including leftover ModeDisabled / ModeRollback: it no
-// longer treats a lingering FULLSEND_FORGE_TOKEN as sufficient. This
+// for every registered role: it does not treat a lingering shared token
+// as sufficient. This
 // matches runtime credential selection (Resolve / Select /
 // SelectAgent), which always requires the registered per-role secret
-// and never reads the migration gate or falls back to
-// FULLSEND_FORGE_TOKEN — see TestDiagnoseReadyAgreesWithResolveOnLeftoverModes.
+// and never reads a shared credential.
 type Report struct {
-	Mode          Mode
-	SharedPresent bool
-	Roles         []RoleReport
-	Partial       bool
-	Ready         bool
-	Missing       []Role
-	Diagnostics   []string
-}
-
-// SharedSecretName is FULLSEND_FORGE_TOKEN.
-func SharedSecretName() string {
-	return forge.SecretForgeToken
-}
-
-// ModeVariableName is the non-masked role-identity-gate CI/CD variable.
-func ModeVariableName() string {
-	return forge.VarGitLabRoleMigration
+	Roles       []RoleReport
+	Partial     bool
+	Ready       bool
+	Missing     []Role
+	Diagnostics []string
 }
 
 // TokenScopes is the GitLab PAT scope list for every role token.
@@ -269,60 +199,8 @@ func TokenScopes() []string {
 	return []string{"api"}
 }
 
-// ParseMode interprets FULLSEND_GITLAB_ROLE_MIGRATION. Empty or
-// whitespace-only is ModeDisabled so leftover shared-token installs and
-// local runs without the gate remain parseable. Unknown values fail
-// closed. Leftover disabled and migrating strings remain parseable so
-// ordinary repos install can converge them; they are not
-// operator-settable.
-func ParseMode(raw string) (Mode, error) {
-	s := strings.ToLower(strings.TrimSpace(raw))
-	switch s {
-	case "", string(ModeDisabled):
-		return ModeDisabled, nil
-	case string(ModeMigrating):
-		return ModeMigrating, nil
-	case string(ModeRollback):
-		return ModeRollback, nil
-	case string(ModeEnforced):
-		return ModeEnforced, nil
-	default:
-		return "", fmt.Errorf("%w: %q", ErrInvalidMode, s)
-	}
-}
-
-// Valid reports whether m is one of the four defined modes.
-func (m Mode) Valid() bool {
-	switch m {
-	case ModeDisabled, ModeMigrating, ModeRollback, ModeEnforced:
-		return true
-	default:
-		return false
-	}
-}
-
-// UsesSharedOnly reports leftover install/status modes that historically
-// used FULLSEND_FORGE_TOKEN. Neither Diagnose nor runtime credential
-// selection branches on this predicate any longer; Resolve always
-// requires the registered role secret, and Diagnose.Ready always
-// requires every registered role. Retained for backward compatibility
-// with callers that still expect the old Mode-typed result shape.
-func (m Mode) UsesSharedOnly() bool {
-	return m == ModeDisabled || m == ModeRollback
-}
-
-// RequiresRoleCredentials reports whether repos status treats a missing
-// role credential as required for additional builtin/registered
-// readiness checks (see gitLabRoleReadinessRequired). Diagnose no
-// longer branches on this predicate — its Ready field requires every
-// registered role secret in every mode. Runtime Resolve always requires
-// the registered role secret regardless of this predicate.
-func (m Mode) RequiresRoleCredentials() bool {
-	return m == ModeEnforced || m == ModeMigrating
-}
-
-// PresenceFrom snapshots whether the shared token and each registered
-// role secret are non-empty. A nil getenv uses os.Getenv. A zero
+// PresenceFrom snapshots each registered role secret. A nil getenv uses
+// os.Getenv. A zero
 // registry means built-in roles only. Values are not retained.
 func PresenceFrom(getenv func(string) string, reg Registry) map[string]bool {
 	if getenv == nil {
@@ -351,17 +229,12 @@ func Resolve(req Request) (Source, error) {
 	reg := req.Registry.effective()
 	if req.FailedSecret != "" {
 		role, _ := reg.roleForSecret(req.FailedSecret)
-		return Source{}, &Error{
-			Role:   role,
-			Mode:   req.Mode,
-			Secret: req.FailedSecret,
-			Err:    ErrAuthFailed,
-		}
+		return Source{}, &Error{Role: role, Secret: req.FailedSecret, Err: ErrAuthFailed}
 	}
 
 	rec, err := roleForJob(reg, req.Job)
 	if err != nil {
-		return Source{}, &Error{Mode: req.Mode, Err: err}
+		return Source{}, &Error{Err: err}
 	}
 	secret := rec.Credential.SecretName
 	if isPresent(req.Present, secret) {
@@ -369,38 +242,27 @@ func Resolve(req Request) (Source, error) {
 			Role:       rec.Name,
 			Kind:       rec.Kind,
 			SecretName: secret,
-			Shared:     false,
 			Reused:     rec.Credential.Kind == CredentialReuse,
 			Reason:     "role credential configured",
 		}, nil
 	}
 	return Source{}, &Error{
 		Role:   rec.Name,
-		Mode:   req.Mode,
 		Secret: secret,
 		Err:    ErrUnconfigured,
 	}
 }
 
-// Diagnose reports migration mode, per-role presence, partial
-// configuration, and readiness. Readiness requires every registered
-// role secret to be present, in every mode. Custom roles in the
+// Diagnose reports per-role presence, partial configuration, and
+// readiness. Custom roles in the
 // registry are included; an empty registry reports built-ins only.
 //
 // See Report.Ready: this agrees with runtime credential selection
 // (Resolve / Select / SelectAgent), which always requires the
-// registered role secret, in every mode, regardless of what Diagnose
-// reports here.
-func Diagnose(mode Mode, present map[string]bool, reg Registry) Report {
+// registered role secret, regardless of what Diagnose reports here.
+func Diagnose(present map[string]bool, reg Registry) Report {
 	reg = reg.effective()
-	rep := Report{
-		Mode:          mode,
-		SharedPresent: isPresent(present, forge.SecretForgeToken),
-	}
-	if !mode.Valid() {
-		rep.Diagnostics = []string{fmt.Sprintf("invalid migration mode %q", mode)}
-		return rep
-	}
+	rep := Report{}
 
 	roles := reg.Registrations()
 	rep.Roles = make([]RoleReport, 0, len(roles))
@@ -426,19 +288,12 @@ func Diagnose(mode Mode, present map[string]bool, reg Registry) Report {
 	total := len(roles)
 	rep.Partial = configured > 0 && configured < total
 	rep.Ready = total > 0 && configured == total
-	rep.Diagnostics = diagnoseMessages(mode, rep, configured, total)
+	rep.Diagnostics = diagnoseMessages(rep, configured, total)
 	return rep
 }
 
-func diagnoseMessages(mode Mode, rep Report, configured, total int) []string {
-	msgs := []string{
-		fmt.Sprintf("mode=%s", mode),
-	}
-	if rep.SharedPresent {
-		msgs = append(msgs, "shared credential FULLSEND_FORGE_TOKEN: configured")
-	} else {
-		msgs = append(msgs, "shared credential FULLSEND_FORGE_TOKEN: unconfigured")
-	}
+func diagnoseMessages(rep Report, configured, total int) []string {
+	msgs := []string{}
 	for _, rr := range rep.Roles {
 		label := string(rr.Name)
 		if rr.Kind == RoleKindCustom {

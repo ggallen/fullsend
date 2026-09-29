@@ -79,14 +79,12 @@ type RoleProvisionFailure struct {
 // RoleProvisionResult is the observable outcome of a provision run.
 // Token values are not included.
 type RoleProvisionResult struct {
-	Mode            gitlabroles.Mode
 	Report          gitlabroles.Report
 	Created         []gitlabroles.Role
 	Enrolled        []gitlabroles.Role
 	Skipped         []gitlabroles.Role
 	Reused          []gitlabroles.Role
 	Failed          []RoleProvisionFailure
-	SharedPreserved bool
 	RegistryWritten bool
 	DryRun          bool
 	Diagnostics     []string
@@ -152,26 +150,20 @@ var gitLabRoleUninstallVars = []string{
 // every registered role (built-in and custom), stores them as
 // protected masked CI/CD variables, writes the registry, and reports
 // which roles are ready. It never reads or writes the retired
-// migration gate.
+// historical migration state.
 //
 // It never revokes or overwrites FULLSEND_FORGE_TOKEN. Existing role
 // secrets are left in place (reinstall / retry). A failed role does
-// not roll back roles that already succeeded. SharedPreserved is
-// always true on a successful return.
+// not roll back roles that already succeeded. Legacy shared-token
+// retirement is handled separately by the cleanup path.
 func ProvisionGitLabRoleCredentials(ctx context.Context, cfg RoleProvisionConfig) (RoleProvisionResult, error) {
-	result := RoleProvisionResult{SharedPreserved: true, DryRun: cfg.DryRun}
+	result := RoleProvisionResult{DryRun: cfg.DryRun}
 	if cfg.Client == nil {
 		return result, fmt.Errorf("GitLab role provisioning requires a forge client")
 	}
 	operationLock := gitlabRoleOperationLock(cfg.Owner, cfg.Repo)
 	operationLock.Lock()
 	defer operationLock.Unlock()
-	// Role credentials are now the only supported GitLab identity path.
-	// Keep the legacy Mode field in the result for source compatibility with
-	// callers and old status consumers, but never read or write the migration
-	// gate.
-	mode := gitlabroles.ModeEnforced
-	result.Mode = mode
 	reg := cfg.Registry
 	if len(reg.Registrations()) == 0 {
 		reg = gitlabroles.BuiltinRegistry()
@@ -191,10 +183,10 @@ func ProvisionGitLabRoleCredentials(ctx context.Context, cfg RoleProvisionConfig
 	if presErr != nil {
 		return result, fmt.Errorf("reading GitLab role credential presence: %w", presErr)
 	}
-	result.Report = gitlabroles.Diagnose(mode, present, reg)
+	result.Report = gitlabroles.Diagnose(present, reg)
 	result.Diagnostics = result.Report.Diagnostics
 	if secretLeak(result) != "" {
-		return RoleProvisionResult{SharedPreserved: true}, fmt.Errorf("internal error: provision result leaked a secret value")
+		return RoleProvisionResult{}, fmt.Errorf("internal error: provision result leaked a secret value")
 	}
 	return result, nil
 }
@@ -359,28 +351,25 @@ func writeGitLabRoleRegistry(ctx context.Context, cfg RoleProvisionConfig, resul
 }
 
 // LoadGitLabRoleState reads the registered role policy and per-secret
-// presence from a repository. The migration gate is legacy state and is
-// deliberately ignored; the returned mode is retained only for callers that
-// still expose the old result shape.
-func LoadGitLabRoleState(ctx context.Context, client forge.Client, owner, repo string) (gitlabroles.Mode, gitlabroles.Registry, map[string]bool, error) {
+// presence from a repository. Migration state is deliberately not read.
+func LoadGitLabRoleState(ctx context.Context, client forge.Client, owner, repo string) (gitlabroles.Registry, map[string]bool, error) {
 	regRaw, _, err := client.GetRepoVariable(ctx, owner, repo, forge.VarGitLabRoleRegistry)
 	if err != nil {
-		return gitlabroles.ModeEnforced, gitlabroles.Registry{}, nil, fmt.Errorf("reading %s: %w", forge.VarGitLabRoleRegistry, err)
+		return gitlabroles.Registry{}, nil, fmt.Errorf("reading %s: %w", forge.VarGitLabRoleRegistry, err)
 	}
 	reg, err := gitlabroles.ParseRegistry(regRaw)
 	if err != nil {
-		return gitlabroles.ModeEnforced, gitlabroles.Registry{}, nil, err
+		return gitlabroles.Registry{}, nil, err
 	}
 	present, err := gitLabRolePresence(ctx, client, owner, repo, reg)
 	if err != nil {
-		return gitlabroles.ModeEnforced, reg, nil, err
+		return gitlabroles.Registry{}, nil, err
 	}
-	return gitlabroles.ModeEnforced, reg, present, nil
+	return reg, present, nil
 }
 
 func gitLabRolePresence(ctx context.Context, client forge.Client, owner, repo string, reg gitlabroles.Registry) (map[string]bool, error) {
 	names := make(map[string]struct{})
-	names[forge.SecretForgeToken] = struct{}{}
 	for _, rec := range reg.Registrations() {
 		if rec.Credential.SecretName != "" {
 			names[rec.Credential.SecretName] = struct{}{}
@@ -465,9 +454,6 @@ func secretLeak(result RoleProvisionResult) string {
 			}
 		}
 		return ""
-	}
-	if n := check(string(result.Mode)); n != "" {
-		return n
 	}
 	for _, d := range result.Diagnostics {
 		if n := check(d); n != "" {

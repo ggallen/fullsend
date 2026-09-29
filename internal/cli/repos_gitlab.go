@@ -17,9 +17,8 @@ import (
 
 // setupGitLabBotToken and ensureGitLabSharedCredentialAllowed were
 // removed: registered role credentials are now the only supported
-// runtime path (#7782 PR2), so `repos install` never provisions the
-// shared fullsend-bot PAT (fresh or existing install) and there is no
-// migration gate left to consult.
+// runtime path (#7782 PR3), so `repos install` never provisions the
+// shared fullsend-bot PAT (fresh or existing install).
 
 // provisionGitLabPollState ensures FULLSEND_DISPATCH_SECRET exists so
 // poll-state HMAC signing is on by default, then creates both poll-state
@@ -190,7 +189,6 @@ func annotateGitLabRoleLifecycle(ctx context.Context, clients repos.ForgeClientF
 		if st.Forge != "" && st.Forge != repos.ForgeGitLab {
 			continue
 		}
-		hasRoleStatus := st.GitLabRoleMode != "" || len(st.GitLabRoleDiagnostics) > 0
 		toks, listErr := adapter.ListProjectAccessTokens(ctx, st.Owner, st.Repo)
 		if listErr != nil {
 			toks = nil
@@ -201,7 +199,7 @@ func annotateGitLabRoleLifecycle(ctx context.Context, clients repos.ForgeClientF
 		// gains a GitLab-role lifecycle drift gets double-counted.
 		wasDrifted := len(st.Drifts) > 0
 		newlyDrifted := false
-		if hasRoleStatus && listErr == nil {
+		if listErr == nil {
 			newlyDrifted = repos.EnrichGitLabRoleStatus(ctx, fc.Client, st.Owner, st.Repo, toks, now, st)
 		}
 		userIDs := repos.PollerPipelineUserIDs(toks)
@@ -465,7 +463,7 @@ func maybeRetireGitLabSharedCredential(ctx context.Context, opts *reposInstallCo
 	}
 	result, err := repos.CutoverGitLabRoleCredentials(ctx, repos.GitLabRoleCutoverConfig{
 		Owner: owner, Repo: repo, Client: client, TokenInventory: tokens,
-		DrainConfirmed: true, DryRun: opts.dryRun,
+		DryRun: opts.dryRun,
 	})
 	if err != nil {
 		if repos.IsGitLabRoleCutoverDeferred(err) {
@@ -481,7 +479,6 @@ func maybeRetireGitLabSharedCredential(ctx context.Context, opts *reposInstallCo
 }
 
 func maybeRotateGitLabRoles(ctx context.Context, opts *reposInstallConfig, client forge.Client, printer *ui.Printer, owner, repo string) error {
-	mode := gitlabroles.ModeEnforced
 	registryJSON := opts.gitlabRoleRegistryJSON
 	if registryJSON == "" {
 		live, liveExists, liveErr := client.GetRepoVariable(ctx, owner, repo, forge.VarGitLabRoleRegistry)
@@ -517,7 +514,6 @@ func maybeRotateGitLabRoles(ctx context.Context, opts *reposInstallConfig, clien
 		Client:         client,
 		Tokens:         tokens,
 		Registry:       reg,
-		Mode:           mode,
 		Roles:          opts.rotateGitLabRoleFilter,
 		Force:          opts.rotateGitLabRoles,
 		ProvidedTokens: opts.gitlabRoleProvided,

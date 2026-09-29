@@ -125,7 +125,6 @@ type RepoStatus struct {
 	Error           string  `json:"error,omitempty"`
 
 	// GitLab role-credential status. Names only; never token values.
-	GitLabRoleMode        string   `json:"gitlab_role_mode,omitempty"`
 	GitLabRolesReady      bool     `json:"gitlab_roles_ready,omitempty"`
 	GitLabRolesPartial    bool     `json:"gitlab_roles_partial,omitempty"`
 	GitLabRoleDiagnostics []string `json:"gitlab_role_diagnostics,omitempty"`
@@ -379,7 +378,7 @@ func checkRepoStatus(ctx context.Context, cfg ResolvedConfig, dcfg DriftConfig, 
 }
 
 func appendGitLabRoleStatus(ctx context.Context, client forge.Client, owner, repo string, status *RepoStatus) {
-	mode, reg, present, err := LoadGitLabRoleState(ctx, client, owner, repo)
+	reg, present, err := LoadGitLabRoleState(ctx, client, owner, repo)
 	if err != nil {
 		switch {
 		case errors.Is(err, gitlabroles.ErrInvalidRegistry):
@@ -389,14 +388,10 @@ func appendGitLabRoleStatus(ctx context.Context, client forge.Client, owner, rep
 		}
 		return
 	}
-	rep := gitlabroles.Diagnose(mode, present, reg)
-	status.GitLabRoleMode = string(rep.Mode)
+	rep := gitlabroles.Diagnose(present, reg)
 	status.GitLabRolesReady = rep.Ready
 	status.GitLabRolesPartial = rep.Partial
 	status.GitLabRoleDiagnostics = rep.Diagnostics
-	if !gitLabRoleReadinessRequired(mode) {
-		return
-	}
 	builtin := appendBuiltinRoleReadiness(status, present, reg, nil)
 	registered := appendRegisteredRoleReadiness(status, present, reg, nil)
 	status.GitLabRolesReady = status.GitLabRolesReady && builtin.Ready && registered.Ready
@@ -407,10 +402,6 @@ func appendGitLabRoleStatus(ctx context.Context, client forge.Client, owner, rep
 			Actual:   "missing",
 		})
 	}
-}
-
-func gitLabRoleReadinessRequired(mode gitlabroles.Mode) bool {
-	return mode.RequiresRoleCredentials()
 }
 
 func readWorkflowRef(ctx context.Context, client forge.Client, owner, repo string, fc ForgeConfig) (string, error) {

@@ -30,7 +30,7 @@ func cutoverTokenInventory() *fakeTokens {
 
 func seedEnforcedIdentity(t *testing.T, fc *forge.FakeClient) {
 	t.Helper()
-	fc.VariableValues["group/project/"+forge.VarGitLabRoleMigration] = string(gitlabroles.ModeEnforced)
+	fc.VariableValues["group/project/"+forge.VarGitLabRoleMigration] = "enforced"
 	fc.VariablesExist["group/project/"+forge.VarGitLabRoleMigration] = true
 	fc.VariableValues["group/project/"+forge.VarGitLabRoleRegistry] = `{"roles":[]}`
 	fc.VariablesExist["group/project/"+forge.VarGitLabRoleRegistry] = true
@@ -72,7 +72,7 @@ func TestCleanupGitLabRoleIdentity_EnforcedRemovesGateAndRoles(t *testing.T) {
 func TestCleanupGitLabRoleIdentity_PartialEnrollmentIsIdempotent(t *testing.T) {
 	t.Parallel()
 	fc := forge.NewFakeClient()
-	fc.VariableValues["group/project/"+forge.VarGitLabRoleMigration] = string(gitlabroles.ModeMigrating)
+	fc.VariableValues["group/project/"+forge.VarGitLabRoleMigration] = "migrating"
 	fc.VariablesExist["group/project/"+forge.VarGitLabRoleMigration] = true
 	require.NoError(t, fc.CreateRepoSecret(context.Background(), "group", "project", forge.SecretForgeToken, "sharedXXXX"))
 	require.NoError(t, fc.CreateRepoSecret(context.Background(), "group", "project", forge.SecretGitLabPollerToken, "oldvalueXXXX"))
@@ -96,7 +96,7 @@ func TestCleanupGitLabRoleIdentity_PartialEnrollmentIsIdempotent(t *testing.T) {
 func TestCleanupGitLabRoleIdentity_CustomRoleFromRegistryWhenListFails(t *testing.T) {
 	t.Parallel()
 	fc := forge.NewFakeClient()
-	fc.VariableValues["group/project/"+forge.VarGitLabRoleMigration] = string(gitlabroles.ModeMigrating)
+	fc.VariableValues["group/project/"+forge.VarGitLabRoleMigration] = "migrating"
 	fc.VariablesExist["group/project/"+forge.VarGitLabRoleMigration] = true
 	fc.VariableValues["group/project/"+forge.VarGitLabRoleRegistry] = `{"roles":[{"name":"scanner","responsibility":"scan","credential":"own","capabilities":["read_issues"],"agents":["scanner"]}]}`
 	fc.VariablesExist["group/project/"+forge.VarGitLabRoleRegistry] = true
@@ -234,7 +234,7 @@ func TestCleanupGitLabRoleIdentity_DryRunDoesNotWrite(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, result.DryRun)
 	assert.Empty(t, tokens.revoked)
-	assert.Equal(t, string(gitlabroles.ModeEnforced), fc.VariableValues["group/project/"+forge.VarGitLabRoleMigration])
+	assert.Equal(t, "enforced", fc.VariableValues["group/project/"+forge.VarGitLabRoleMigration])
 	assert.True(t, fc.Secrets["group/project/"+forge.SecretGitLabPollerToken])
 }
 
@@ -326,7 +326,7 @@ func TestGitLabRoleLifecycle_UninstallThenReinstallDoesNotKeepLegacyState(t *tes
 	tokens := cutoverTokenInventory()
 
 	_, err := CutoverGitLabRoleCredentials(ctx, GitLabRoleCutoverConfig{
-		Owner: "group", Repo: "project", Client: fc, TokenInventory: tokens, DrainConfirmed: true,
+		Owner: "group", Repo: "project", Client: fc, TokenInventory: tokens,
 	})
 	require.NoError(t, err)
 	assert.False(t, fc.Secrets["group/project/"+forge.SecretForgeToken])
@@ -335,22 +335,18 @@ func TestGitLabRoleLifecycle_UninstallThenReinstallDoesNotKeepLegacyState(t *tes
 		Owner: "group", Repo: "project", Client: fc, Tokens: tokens,
 	})
 	require.NoError(t, err)
-	// LoadGitLabRoleState ignores the retired migration gate entirely and
-	// always reports ModeEnforced, regardless of uninstall history.
-	mode, _, present, err := LoadGitLabRoleState(ctx, fc, "group", "project")
+	// LoadGitLabRoleState ignores the retired migration-state variable entirely.
+	_, present, err := LoadGitLabRoleState(ctx, fc, "group", "project")
 	require.NoError(t, err)
-	assert.Equal(t, gitlabroles.ModeEnforced, mode)
 	assert.False(t, present[forge.SecretForgeToken])
 	assert.False(t, present[forge.SecretGitLabPollerToken])
 
 	fresh := &fakeTokens{}
-	provisioned, err := ProvisionGitLabRoleCredentials(ctx, RoleProvisionConfig{
+	_, err = ProvisionGitLabRoleCredentials(ctx, RoleProvisionConfig{
 		Owner: "group", Repo: "project", Client: fc, Tokens: fresh,
 		Registry: gitlabroles.BuiltinRegistry(),
 	})
 	require.NoError(t, err)
-	assert.Equal(t, gitlabroles.ModeEnforced, provisioned.Mode)
-	assert.True(t, provisioned.SharedPreserved)
 	assert.False(t, fc.Secrets["group/project/"+forge.SecretForgeToken], "reinstall must not recreate the retired shared credential")
 	assert.True(t, fc.Secrets["group/project/"+forge.SecretGitLabPollerToken])
 	assert.True(t, fc.Secrets["group/project/"+forge.SecretGitLabAnalystToken])
@@ -371,7 +367,6 @@ func TestGitLabRoleLifecycle_EnforcedDriftDoesNotRecreateSharedToken(t *testing.
 		Registry: gitlabroles.BuiltinRegistry(),
 	})
 	require.NoError(t, err)
-	assert.Equal(t, gitlabroles.ModeEnforced, result.Mode)
 	assert.Contains(t, result.Created, gitlabroles.RoleCoder)
 	assert.False(t, fc.Secrets["group/project/"+forge.SecretForgeToken])
 	assert.True(t, fc.Secrets["group/project/"+forge.SecretGitLabCoderToken])
@@ -385,7 +380,7 @@ func TestGitLabRoleLifecycle_RevokedRoleRotatesWithoutSharedToken(t *testing.T) 
 	ctx := context.Background()
 	fc := seededRoleClient(t, gitlabroles.RolePoller, gitlabroles.RoleAnalyst, gitlabroles.RoleCoder)
 	delete(fc.Secrets, "group/project/"+forge.SecretForgeToken)
-	fc.VariableValues["group/project/"+forge.VarGitLabRoleMigration] = string(gitlabroles.ModeEnforced)
+	fc.VariableValues["group/project/"+forge.VarGitLabRoleMigration] = "enforced"
 	fc.VariablesExist["group/project/"+forge.VarGitLabRoleMigration] = true
 
 	tokens := &fakeTokens{}
@@ -395,12 +390,11 @@ func TestGitLabRoleLifecycle_RevokedRoleRotatesWithoutSharedToken(t *testing.T) 
 
 	result, err := RotateGitLabRoleCredentials(ctx, RoleRotateConfig{
 		Owner: "group", Repo: "project", Client: fc, Tokens: tokens,
-		Registry: gitlabroles.BuiltinRegistry(), Mode: gitlabroles.ModeEnforced,
-		Now: time.Date(2026, 9, 21, 0, 0, 0, 0, time.UTC),
+		Registry: gitlabroles.BuiltinRegistry(),
+		Now:      time.Date(2026, 9, 21, 0, 0, 0, 0, time.UTC),
 	})
 	require.NoError(t, err)
 	assert.Contains(t, result.Rotated, gitlabroles.RolePoller)
-	assert.True(t, result.SharedPreserved)
 	assert.False(t, fc.Secrets["group/project/"+forge.SecretForgeToken])
 	for _, name := range tokens.createdNames() {
 		assert.NotEqual(t, gitlabroles.SharedTokenName, name)

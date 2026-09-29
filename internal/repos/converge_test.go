@@ -10,7 +10,6 @@ import (
 
 	"github.com/fullsend-ai/fullsend/internal/config"
 	"github.com/fullsend-ai/fullsend/internal/forge"
-	"github.com/fullsend-ai/fullsend/internal/gitlabroles"
 	"github.com/fullsend-ai/fullsend/internal/poll"
 	"github.com/fullsend-ai/fullsend/internal/scaffold"
 )
@@ -4920,31 +4919,23 @@ func TestConverge_GitLab_NeedsPostInstallSurvivesUnrelatedSecrets(t *testing.T) 
 		t.Fatalf("expected 1 installed, got %d", len(result.Installed()))
 	}
 	if !result.Installed()[0].NeedsGitLabPostInstall {
-		t.Error("expected NeedsGitLabPostInstall=true: pre-existing GCP inference secrets must not mask a missing GitLab bot token/schedules")
+		t.Error("expected NeedsGitLabPostInstall=true: pre-existing GCP inference secrets must not mask missing GitLab pipeline schedules")
 	}
 }
 
 // TestConverge_GitLab_NeedsPostInstallFlagsForPartialArtifacts covers a
-// review finding on #7418: gitlabPostInstallDone (and the needsBotToken /
-// needsSchedules present-checks it wraps) were only exercised directly by
-// TestGitlabPostInstallDone, never through Converge itself. A regression
-// that set NeedsGitLabBotToken / NeedsGitLabPipelineSchedules from the
-// combined needsPostInstall flag instead of their own present-checks would
-// still pass every other integration test, since those only cover the two
-// poles (nothing present, everything present). This exercises the partial
-// states in between: bot token present but schedules missing, schedules
-// present but the bot token missing, and the bot token plus only one of
-// the two schedules present.
+// leftover FULLSEND_GITLAB_ROLE_MIGRATION value and leftover shared-token
+// secret: neither restores bot-token recovery, and post-install is gated
+// only on missing pipeline schedules.
 func TestConverge_GitLab_NeedsPostInstallFlagsForPartialArtifacts(t *testing.T) {
 	tests := []struct {
 		name            string
 		seed            func(fc *forge.FakeClient, full string)
-		wantBotToken    bool
 		wantSchedules   bool
 		wantPostInstall bool
 	}{
 		{
-			name: "enforced mode with schedules and no shared token",
+			name: "leftover enforced gate with schedules and no shared token",
 			seed: func(fc *forge.FakeClient, full string) {
 				fc.VariableValues[full+"/"+forge.VarGitLabRoleMigration] = " EnFoRcEd "
 				fc.VariablesExist[full+"/"+forge.VarGitLabRoleMigration] = true
@@ -4953,40 +4944,36 @@ func TestConverge_GitLab_NeedsPostInstallFlagsForPartialArtifacts(t *testing.T) 
 					{Description: "fullsend event poll"},
 				}
 			},
-			wantBotToken:    false,
 			wantSchedules:   false,
 			wantPostInstall: false,
 		},
 		{
-			name: "bot token present, schedules missing",
+			name: "leftover shared token present, schedules missing",
 			seed: func(fc *forge.FakeClient, full string) {
 				fc.Secrets[full+"/"+forge.SecretForgeToken] = true
 			},
-			wantBotToken:    false,
 			wantSchedules:   true,
 			wantPostInstall: true,
 		},
 		{
-			name: "schedules present, bot token missing",
+			name: "schedules present, leftover shared token missing",
 			seed: func(fc *forge.FakeClient, full string) {
 				fc.PipelineSchedules[full] = []forge.PipelineSchedule{
 					{Description: "fullsend slash poll"},
 					{Description: "fullsend event poll"},
 				}
 			},
-			wantBotToken:    false,
 			wantSchedules:   false,
 			wantPostInstall: false,
 		},
 		{
-			name: "bot token plus only one schedule present",
+			name: "leftover shared token plus only one schedule present",
 			seed: func(fc *forge.FakeClient, full string) {
 				fc.Secrets[full+"/"+forge.SecretForgeToken] = true
 				fc.PipelineSchedules[full] = []forge.PipelineSchedule{
 					{Description: "fullsend slash poll"},
 				}
 			},
-			wantBotToken:    false,
 			wantSchedules:   true,
 			wantPostInstall: true,
 		},
@@ -5011,9 +4998,6 @@ func TestConverge_GitLab_NeedsPostInstallFlagsForPartialArtifacts(t *testing.T) 
 				t.Fatalf("expected 1 installed, got %d", len(result.Installed()))
 			}
 			got := result.Installed()[0]
-			if got.NeedsGitLabBotToken != tt.wantBotToken {
-				t.Errorf("NeedsGitLabBotToken = %v, want %v", got.NeedsGitLabBotToken, tt.wantBotToken)
-			}
 			if got.NeedsGitLabPipelineSchedules != tt.wantSchedules {
 				t.Errorf("NeedsGitLabPipelineSchedules = %v, want %v", got.NeedsGitLabPipelineSchedules, tt.wantSchedules)
 			}
@@ -5028,7 +5012,7 @@ func TestConverge_GitLab_ExistingRepoReportsSharedCredentialRecovery(t *testing.
 	fc := newFakeClientForBatch("acme/api")
 	populateGitLabInstalled(fc, "acme", "api")
 	delete(fc.Secrets, "acme/api/"+forge.SecretForgeToken)
-	fc.VariableValues["acme/api/"+forge.VarGitLabRoleMigration] = string(gitlabroles.ModeRollback)
+	fc.VariableValues["acme/api/"+forge.VarGitLabRoleMigration] = "rollback"
 	fc.VariablesExist["acme/api/"+forge.VarGitLabRoleMigration] = true
 
 	result, err := Converge(context.Background(), gitlabConvergeCfg("acme/api"), newTestClientFactory(fc), (&spyScaffoldCommit{}).fn(), noopProgress)
@@ -5042,8 +5026,8 @@ func TestConverge_GitLab_ExistingRepoReportsSharedCredentialRecovery(t *testing.
 		t.Fatalf("expected one result, got installed=%d converged=%d current=%d", len(result.Installed()), len(result.Converged()), len(result.AlreadyCurrent()))
 	}
 	got := result.Results[0]
-	if got.NeedsGitLabBotToken || got.NeedsGitLabPostInstall {
-		t.Fatalf("legacy shared-token recovery must be disabled, got bot:%v post-install:%v", got.NeedsGitLabBotToken, got.NeedsGitLabPostInstall)
+	if got.NeedsGitLabPostInstall {
+		t.Fatalf("legacy shared-token recovery must be disabled, got post-install:%v", got.NeedsGitLabPostInstall)
 	}
 }
 
@@ -5073,16 +5057,10 @@ func TestConverge_GitLab_ExistingRepoAddsMissingScheduleWithoutDeletingExisting(
 	}
 }
 
-// TestGitlabPostInstallDone is a table test for gitlabPostInstallDone
-// covering partial GitLab post-install states. gitlabPostInstallDone is
-// a strict AND of the bot-token secret and every pipeline-schedule
-// component; before this test, only the two poles (nothing present, and
-// token+both schedules present) were exercised, so a regression that
-// weakened the AND to check only the token (or only the schedules)
-// would still pass. This covers the partial states in between: token
-// only, schedules only (no token), and token plus just one of the two
-// schedules.
-func TestGitlabPostInstallDone(t *testing.T) {
+// TestGitlabSchedulesPresent covers partial GitLab post-install schedule
+// states. Post-install is schedules-only after shared-token bot-PAT setup
+// was removed; leftover FULLSEND_FORGE_TOKEN must not count as done.
+func TestGitlabSchedulesPresent(t *testing.T) {
 	specs := PipelineScheduleSpecs()
 	if len(specs) < 2 {
 		t.Fatalf("expected at least 2 pipeline schedule specs, got %d", len(specs))
@@ -5115,22 +5093,22 @@ func TestGitlabPostInstallDone(t *testing.T) {
 			want: false,
 		},
 		{
-			name: "bot token only, no schedules",
+			name: "leftover shared token only, no schedules",
 			components: []ComponentStatus{
 				{Name: tokenComponent, Present: true},
 			},
 			want: false,
 		},
 		{
-			name: "both schedules only, no bot token",
+			name: "both schedules present",
 			components: []ComponentStatus{
 				{Name: schedule0, Present: true},
 				{Name: schedule1, Present: true},
 			},
-			want: false,
+			want: true,
 		},
 		{
-			name: "bot token plus only the first schedule",
+			name: "leftover shared token plus only the first schedule",
 			components: []ComponentStatus{
 				{Name: tokenComponent, Present: true},
 				{Name: schedule0, Present: true},
@@ -5138,15 +5116,7 @@ func TestGitlabPostInstallDone(t *testing.T) {
 			want: false,
 		},
 		{
-			name: "bot token plus only the second schedule",
-			components: []ComponentStatus{
-				{Name: tokenComponent, Present: true},
-				{Name: schedule1, Present: true},
-			},
-			want: false,
-		},
-		{
-			name: "bot token plus both schedules",
+			name: "leftover shared token plus both schedules",
 			components: []ComponentStatus{
 				{Name: tokenComponent, Present: true},
 				{Name: schedule0, Present: true},
@@ -5158,8 +5128,8 @@ func TestGitlabPostInstallDone(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := gitlabPostInstallDone(tt.components); got != tt.want {
-				t.Errorf("gitlabPostInstallDone(%+v) = %v, want %v", tt.components, got, tt.want)
+			if got := gitlabSchedulesPresent(tt.components); got != tt.want {
+				t.Errorf("gitlabSchedulesPresent(%+v) = %v, want %v", tt.components, got, tt.want)
 			}
 		})
 	}

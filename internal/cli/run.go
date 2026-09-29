@@ -4298,7 +4298,7 @@ func childScriptEnv(runnerEnv map[string]string, traceparent string) []string {
 
 // gitlabRoleRoutingKeyPrefix is the env var prefix used by the GitLab
 // role-credential contract's diagnostic and credential vars (#7499):
-// FULLSEND_GITLAB_ROLE, FULLSEND_GITLAB_ROLE_MIGRATION,
+// FULLSEND_GITLAB_ROLE,
 // FULLSEND_GITLAB_ROLE_REGISTRY, FULLSEND_GITLAB_ROLE_SECRET,
 // FULLSEND_GITLAB_ROLE_SOURCE, the built-in FULLSEND_GITLAB_{POLLER,
 // ANALYST,CODER}_TOKEN secrets, and custom FULLSEND_GITLAB_ROLE_<NAME>_TOKEN

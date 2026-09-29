@@ -362,20 +362,8 @@ func formatRef(currentRef, expectedRef string) string {
 }
 
 func showGitLabRoleStatus(s repos.RepoStatus) bool {
-	if len(s.GitLabRoleDiagnostics) == 0 {
-		return false
-	}
-	switch s.GitLabRoleMode {
-	case string(gitlabroles.ModeMigrating), string(gitlabroles.ModeRollback), string(gitlabroles.ModeEnforced):
-		return true
-	case "":
-		// appendGitLabRoleStatus leaves GitLabRoleMode empty on a
-		// parse/read/registry error, but still records a diagnostic.
-		// Surface it in the table view too, not just JSON output.
-		return true
-	default:
-		return s.GitLabRolesPartial
-	}
+	// Surface role-credential diagnostics and parse/read/registry errors.
+	return len(s.GitLabRoleDiagnostics) > 0
 }
 
 func printStatusTable(cmd *cobra.Command, result *repos.StatusResult) {
@@ -437,7 +425,7 @@ func printStatusTable(cmd *cobra.Command, result *repos.StatusResult) {
 		if !showGitLabRoleStatus(s) {
 			continue
 		}
-		fmt.Fprintf(out, "\n%s GitLab roles (mode=%s):\n", s.Owner+"/"+s.Repo, s.GitLabRoleMode)
+		fmt.Fprintf(out, "\n%s GitLab roles:\n", s.Owner+"/"+s.Repo)
 		for _, d := range s.GitLabRoleDiagnostics {
 			fmt.Fprintf(out, "  %s\n", d)
 		}
@@ -988,20 +976,13 @@ func runReposInstall(ctx context.Context, opts *reposInstallConfig) error {
 		}
 	}
 
-	// GitLab post-install: set up bot token and pipeline schedules for
-	// repos whose convergence result says an artifact is missing. Entry into
-	// the loop body is gated on
-	// NeedsGitLabPostInstall (true when either artifact is missing), but
-	// the two destructive actions inside are each gated on their own
-	// specific flag (NeedsGitLabBotToken / NeedsGitLabPipelineSchedules)
-	// rather than the combined flag — a repo re-run while its
-	// initialization MR is still open (#7417) keeps Installed true (the
-	// shim workflow is still absent from the default branch) even though
-	// some GitLab post-install artifacts already exist from a prior run.
-	// Running bot-token setup when only the token exists (or schedule
-	// setup when only the schedules exist) would still revoke/recreate
-	// the live fullsend-bot PAT or delete/recreate pipeline schedules
-	// that didn't need it, breaking in-flight pipelines.
+	// GitLab post-install: set up pipeline schedules for repos whose
+	// convergence result says they are missing. Entry into the loop body
+	// is gated on NeedsGitLabPostInstall (true when schedules are missing).
+	// Schedule setup itself is gated on NeedsGitLabPipelineSchedules so a
+	// repo re-run while its initialization MR is still open (#7417) does
+	// not delete and recreate live schedules. Shared-token bot-PAT setup
+	// was removed: role credentials are the only GitLab runtime path.
 	// failedRepoKeys tracks owner/repo pairs that have already failed in an
 	// earlier stage (post-install setup, poll-state provisioning) so the
 	// role-provisioning pass below can skip them instead of double-counting

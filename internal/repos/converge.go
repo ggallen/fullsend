@@ -108,49 +108,25 @@ type ConvergeResult struct {
 	// received a full install.
 	Installed bool
 
-	// NeedsGitLabPostInstall is true when Installed is true and the
-	// GitLab post-install artifacts (the fullsend-bot PAT secret and
-	// pipeline schedules) did not already exist on the repo before this
-	// run. GitLab post-install (bot token + pipeline schedule setup) is
-	// destructive — it revokes and recreates the live fullsend-bot
-	// project access token and deletes and recreates pipeline
-	// schedules — so it must run only when those artifacts are
-	// genuinely missing. Re-running install while the initialization MR
-	// is still open (#7417) keeps Installed true (workflow file still
-	// absent) but must not re-trigger this destructive setup once the
-	// bot token and schedules already exist from a prior run. This is
-	// deliberately narrower than "any fullsend-managed component
-	// exists" — the GCP inference secrets every Install() writes are
-	// unrelated to GitLab post-install and must not mask it having
-	// failed or never run.
-	//
-	// This is an OR of NeedsGitLabBotToken and NeedsGitLabPipelineSchedules
-	// below, kept for callers that only need to know whether GitLab
-	// post-install requires any action at all (e.g. whether to fetch a
-	// GitLab client for the repo). Callers that actually perform
-	// post-install setup must gate each action on its own specific flag
-	// instead — gating both the bot-token and schedule setup on this
-	// combined flag re-revokes an already-valid bot PAT whenever only
-	// the schedules are missing (or vice versa).
+	// NeedsGitLabPostInstall is true when GitLab pipeline schedules did
+	// not already exist on the repo before this run. GitLab post-install
+	// schedule setup is destructive — it deletes and recreates pipeline
+	// schedules — so it must run only when those artifacts are genuinely
+	// missing. Re-running install while the initialization MR is still
+	// open (#7417) keeps Installed true (workflow file still absent) but
+	// must not re-trigger this destructive setup once the schedules
+	// already exist from a prior run. This is deliberately narrower than
+	// "any fullsend-managed component exists" — the GCP inference secrets
+	// every Install() writes are unrelated to GitLab post-install and
+	// must not mask it having failed or never run. Shared-token bot-PAT
+	// setup is gone: role credentials are the only GitLab runtime path.
 	NeedsGitLabPostInstall bool
-
-	// NeedsGitLabBotToken is true only when the shared credential is still
-	// required by the live migration gate and the fullsend-bot PAT secret
-	// (secret:FULLSEND_FORGE_TOKEN) was not already present before this run.
-	// In enforced mode the shared credential is intentionally not required,
-	// so this remains false even when FULLSEND_FORGE_TOKEN is absent. Callers
-	// must gate bot-token setup on this field specifically,
-	// not on NeedsGitLabPostInstall, so a retry where the token already
-	// exists does not revoke and recreate the live PAT merely because a
-	// pipeline schedule is still missing.
-	NeedsGitLabBotToken bool
 
 	// NeedsGitLabPipelineSchedules is true when at least one pipeline
 	// schedule component (see PipelineScheduleSpecs) was not already
 	// present before this run. Callers must gate pipeline-schedule setup
-	// on this field specifically, not on NeedsGitLabPostInstall, so a
-	// retry where the schedules already exist does not delete and
-	// recreate them merely because the bot token is still missing.
+	// on this field, so a retry where the schedules already exist does
+	// not delete and recreate them.
 	NeedsGitLabPipelineSchedules bool
 
 	// Converged is true when the repo had drifted components that were
@@ -287,12 +263,6 @@ func anyComponentPresent(components []ComponentStatus) bool {
 	return false
 }
 
-// gitlabBotTokenPresent returns true when the fullsend-bot PAT secret
-// (secret:FULLSEND_FORGE_TOKEN) is already present.
-func gitlabBotTokenPresent(components []ComponentStatus) bool {
-	return hasComponent(components, "secret:"+forge.SecretForgeToken)
-}
-
 // gitlabSchedulesPresent returns true when every pipeline-schedule
 // component (see PipelineScheduleSpecs) is already present.
 func gitlabSchedulesPresent(components []ComponentStatus) bool {
@@ -302,23 +272,6 @@ func gitlabSchedulesPresent(components []ComponentStatus) bool {
 		}
 	}
 	return true
-}
-
-// gitlabPostInstallDone returns true when the GitLab-specific
-// post-install artifacts — the fullsend-bot PAT secret and every
-// pipeline schedule — are already present. Unlike anyComponentPresent,
-// this ignores unrelated components (e.g. the GCP inference secrets
-// that every Install() writes regardless of forge), so a repo whose
-// Install() succeeded but whose GitLab post-install step failed or
-// never ran is not mistaken for one that already has a bot token and
-// schedules.
-//
-// This is an AND of the two artifacts, so it does not distinguish which
-// one is missing. Callers that need to act on only the missing piece
-// (see NeedsGitLabBotToken / NeedsGitLabPipelineSchedules) must call
-// gitlabBotTokenPresent / gitlabSchedulesPresent directly instead.
-func gitlabPostInstallDone(components []ComponentStatus) bool {
-	return gitlabBotTokenPresent(components) && gitlabSchedulesPresent(components)
 }
 
 // workflowPresent returns true when the forge-specific shim workflow file
@@ -674,36 +627,21 @@ func convergeRepo(ctx context.Context,
 	// upgrade path selects a version-specific bump branch and leaves
 	// the original MR incomplete (#7417).
 	isNew := !workflowPresent(d.components)
-	// Snapshot "GitLab post-install has not already succeeded" ahead of
-	// Install(), which is about to write variables/secrets —
-	// gitlabPostInstallDone on d.components (probed during discovery,
-	// before any writes) reflects the pre-run state. Destructive GitLab
-	// post-install setup (bot token + pipeline schedule recreation) must
-	// gate on this, not on isNew/Installed alone, so it does not re-run
-	// on every re-install while the initialization MR is still open
-	// (#7417). It must also gate on the GitLab-specific artifacts
-	// (bot token secret, schedules) rather than any component being
-	// present — the GCP inference secrets Install() always writes are
-	// unrelated to GitLab post-install, so their presence alone must not
-	// mask a post-install step that failed or never ran.
+	// Snapshot whether GitLab pipeline schedules are already present
+	// ahead of Install(), which is about to write variables/secrets.
+	// Destructive GitLab post-install schedule setup must gate on this,
+	// not on isNew/Installed alone, so it does not re-run on every
+	// re-install while the initialization MR is still open (#7417). It
+	// must also ignore unrelated components (the GCP inference secrets
+	// Install() always writes) so their presence alone does not mask a
+	// post-install step that failed or never ran.
 	//
-	// needsBotToken and needsSchedules are tracked separately (rather
-	// than only the combined needsPostInstall) so callers can run
-	// bot-token setup and pipeline-schedule setup independently: a retry
-	// where one artifact already exists must not redo that one just
-	// because the other is still missing.
-	// GitLab runtime authentication is role-only. The old shared-token gate
-	// is intentionally not consulted during convergence; uninstall remains
-	// responsible for removing legacy shared-token artifacts.
-	sharedCredentialRequired := false
-	needsBotToken := sharedCredentialRequired && !gitlabBotTokenPresent(d.components)
+	// GitLab runtime authentication is role-only. Shared-token recovery
+	// is intentionally not consulted during convergence; uninstall and
+	// maybeRetireGitLabSharedCredential remain responsible for leftover
+	// FULLSEND_FORGE_TOKEN artifacts.
 	needsSchedules := !gitlabSchedulesPresent(d.components)
-	// Track whether either independently gated post-install action is needed.
-	// The shared bot-token action is retired; role provisioning owns all
-	// GitLab runtime credentials.
-	needsPostInstall := needsBotToken || needsSchedules
-	cr.NeedsGitLabPostInstall = needsPostInstall
-	cr.NeedsGitLabBotToken = needsBotToken
+	cr.NeedsGitLabPostInstall = needsSchedules
 	cr.NeedsGitLabPipelineSchedules = needsSchedules
 
 	// Case 1: Workflow not on the default branch — full install via

@@ -32,9 +32,9 @@ three-role enum.
 `fullsend run` select the registered role credential via
 `gitlabroles.Select` / `SelectAgent` and fail closed if that secret is
 missing. There is no shared-token fallback. The historical
-`FULLSEND_GITLAB_ROLE_MIGRATION` variable is ignored by runtime and install;
-existing installations are converged through role provisioning. Custom roles
-remain optional on existing installations.
+`FULLSEND_GITLAB_ROLE_MIGRATION` variable is not part of the runtime or
+install contract. It is retained only as uninstall cleanup state. Custom
+roles remain optional on existing installations.
 
 ## Registered roles
 
@@ -234,7 +234,7 @@ build — it stays at its zero value. `FailedSecret` only matters when a
 caller constructs a `Request` directly and calls `Resolve` after an
 authentication failure. `fullsend poll`'s `wrapGitLabAuthFailure` uses the
 `AuthFailed` helper for this instead of re-resolving: on a 401/403, it
-wraps the error with `gitlabroles.AuthFailed(role, mode, secret)` rather
+wraps the error with `gitlabroles.AuthFailed(role, secret)` rather
 than calling `Select`/`SelectAgent`/`Resolve` again for that job. Per
 `AuthFailed`'s doc comment, callers must fail closed on an authentication
 failure, not re-Select with a different job or a cleared `FailedSecret`.
@@ -320,7 +320,6 @@ These are different errors. Do not collapse them.
 | --- | --- | --- |
 | Role name is not in the registry | `ErrUnregistered` | Custom agent referenced an unknown identity |
 | Role secret absent or empty | `ErrUnconfigured` | Registered, not provisioned yet |
-| Shared secret absent (leftover Token() of a constructed shared Source) | `ErrSharedUnconfigured` | Legacy sentinel; Resolve never returns it |
 | Runtime 401/403 (or equivalent) from a selected credential | `ErrAuthFailed` | Credential is present but unusable |
 | Job kind is empty or unrecognized | `ErrUnknownJob` | No identity to select |
 | Registry JSON is malformed or untrusted | `ErrInvalidRegistry` | Fail closed; do not load custom roles |
@@ -343,7 +342,7 @@ job or a cleared `FailedSecret` in order to pick a substitute.
 
 ## Status, drift, and diagnostics
 
-`gitlabroles.Diagnose(mode, present, registry)` is the observable
+`gitlabroles.Diagnose(present, registry)` is the observable
 report:
 
 - Per-role state: `configured` or `unconfigured` (presence only),
@@ -524,7 +523,7 @@ Leave these to the follow-up issues.
 | Issue | Work |
 | --- | --- |
 | [#7498](https://github.com/fullsend-ai/fullsend/issues/7498) | **Implemented.** `repos install` creates/enrolls built-in and custom PATs, stores them as protected masked CI variables, writes the registry, reports partial provisioning, preserves the shared token, and handles reinstall/drift/uninstall without deleting credentials still in use |
-| [#7499](https://github.com/fullsend-ai/fullsend/issues/7499) | **Implemented.** `fullsend poll`, `fullsend run`, and `fullsend post-review` select the registered role credential, enforce `ValidateAgent` / `Registration.Has` in role-aware modes, and fail closed on authentication failure without switching identities |
+| [#7499](https://github.com/fullsend-ai/fullsend/issues/7499) | **Implemented.** `fullsend poll`, `fullsend run`, and `fullsend post-review` select the registered role credential, enforce `ValidateAgent` / `Registration.Has`, and fail closed on authentication failure without switching identities |
 | [#7500](https://github.com/fullsend-ai/fullsend/issues/7500) | **Implemented.** Role-aware rotation, recovery, in-flight overlap, and expiry/revocation diagnostics. See [Rotation and recovery](#rotation-and-recovery) and follow the [credential-routing security checklist](#credential-routing-security-checklist) |
 | [#7501](https://github.com/fullsend-ai/fullsend/issues/7501) | **Implemented.** Built-in and registered-role readiness is surfaced on `repos status`, and ready installs retire the legacy shared-token secret. Live GitLab ACL/operation probes and deployment branch-rule verification remain deployment prerequisites. |
 | [#7524](https://github.com/fullsend-ai/fullsend/issues/7524) | **Implemented.** Ordinary `repos install` provisions role credentials and retires the legacy shared credential when readiness checks pass. Partial enrollment defers retirement and runtime remains fail-closed. |
@@ -611,7 +610,7 @@ Ordinary `repos install` still retires leftover `FULLSEND_FORGE_TOKEN`
 after role checks pass.
 
 - [ ] Runtime `Select` / `SelectAgent` / `Resolve` never return
-      `Source.Shared` or `FULLSEND_FORGE_TOKEN`.
+      `FULLSEND_FORGE_TOKEN`.
 - [ ] Missing role secrets fail closed as `ErrUnconfigured`.
 
 ### Keep fallback terminology consistent across docs

@@ -19,7 +19,7 @@ func TestCutoverGitLabRoleCredentialsRetiresSharedCredential(t *testing.T) {
 	tokens := cutoverTokenInventory()
 
 	result, err := CutoverGitLabRoleCredentials(context.Background(), GitLabRoleCutoverConfig{
-		Owner: "group", Repo: "project", Client: fc, TokenInventory: tokens, DrainConfirmed: true,
+		Owner: "group", Repo: "project", Client: fc, TokenInventory: tokens,
 	})
 	require.NoError(t, err)
 	assert.True(t, result.SharedRetired)
@@ -31,7 +31,7 @@ func TestCutoverGitLabRoleCredentialsDefersWhenRoleMissing(t *testing.T) {
 	fc := provisionClient(t)
 	fc.Secrets["group/project/"+forge.SecretForgeToken] = true
 	result, err := CutoverGitLabRoleCredentials(context.Background(), GitLabRoleCutoverConfig{
-		Owner: "group", Repo: "project", Client: fc, TokenInventory: cutoverTokenInventory(), DrainConfirmed: true,
+		Owner: "group", Repo: "project", Client: fc, TokenInventory: cutoverTokenInventory(),
 	})
 	require.Error(t, err)
 	assert.ErrorIs(t, err, ErrGitLabRoleCutoverNotReady)
@@ -42,21 +42,22 @@ func TestCutoverGitLabRoleCredentialsDefersWhenRoleMissing(t *testing.T) {
 func TestCutoverGitLabRoleCredentialsRequiresInventory(t *testing.T) {
 	fc := provisionClient(t)
 	_, err := CutoverGitLabRoleCredentials(context.Background(), GitLabRoleCutoverConfig{
-		Owner: "group", Repo: "project", Client: fc, DrainConfirmed: true,
+		Owner: "group", Repo: "project", Client: fc,
 	})
 	require.Error(t, err)
 }
 
-func TestCutoverGitLabRoleCredentialsRequiresDrainConfirmed(t *testing.T) {
+func TestCutoverGitLabRoleCredentialsRetiresWithoutDrainFlag(t *testing.T) {
 	fc := provisionClient(t)
 	seedCutoverState(t, fc)
 	fc.Secrets["group/project/"+forge.SecretForgeToken] = true
-	_, err := CutoverGitLabRoleCredentials(context.Background(), GitLabRoleCutoverConfig{
-		Owner: "group", Repo: "project", Client: fc, TokenInventory: cutoverTokenInventory(),
+	tokens := cutoverTokenInventory()
+	result, err := CutoverGitLabRoleCredentials(context.Background(), GitLabRoleCutoverConfig{
+		Owner: "group", Repo: "project", Client: fc, TokenInventory: tokens,
 	})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "drained")
-	assert.True(t, fc.Secrets["group/project/"+forge.SecretForgeToken])
+	require.NoError(t, err)
+	assert.True(t, result.SharedRetired)
+	assert.False(t, fc.Secrets["group/project/"+forge.SecretForgeToken])
 }
 
 func TestCutoverGitLabRoleCredentialsDryRunDoesNotRetire(t *testing.T) {
@@ -66,7 +67,7 @@ func TestCutoverGitLabRoleCredentialsDryRunDoesNotRetire(t *testing.T) {
 	tokens := cutoverTokenInventory()
 
 	result, err := CutoverGitLabRoleCredentials(context.Background(), GitLabRoleCutoverConfig{
-		Owner: "group", Repo: "project", Client: fc, TokenInventory: tokens, DrainConfirmed: true, DryRun: true,
+		Owner: "group", Repo: "project", Client: fc, TokenInventory: tokens, DryRun: true,
 	})
 	require.NoError(t, err)
 	assert.True(t, result.DryRun)
@@ -89,7 +90,7 @@ func TestCutoverGitLabRoleCredentialsRetryAfterRevokeFailureStillRevokes(t *test
 	tokens.failRevoke = fmt.Errorf("revoke transiently failed")
 
 	_, err := CutoverGitLabRoleCredentials(context.Background(), GitLabRoleCutoverConfig{
-		Owner: "group", Repo: "project", Client: fc, TokenInventory: tokens, DrainConfirmed: true,
+		Owner: "group", Repo: "project", Client: fc, TokenInventory: tokens,
 	})
 	require.Error(t, err, "revoke failure must surface as an error, not a silent partial success")
 	assert.False(t, fc.Secrets["group/project/"+forge.SecretForgeToken], "the secret is already deleted before revoke runs")
@@ -101,7 +102,7 @@ func TestCutoverGitLabRoleCredentialsRetryAfterRevokeFailureStillRevokes(t *test
 	// leftover token actually gets revoked this time.
 	tokens.failRevoke = nil
 	result, err := CutoverGitLabRoleCredentials(context.Background(), GitLabRoleCutoverConfig{
-		Owner: "group", Repo: "project", Client: fc, TokenInventory: tokens, DrainConfirmed: true,
+		Owner: "group", Repo: "project", Client: fc, TokenInventory: tokens,
 	})
 	require.NoError(t, err)
 	assert.True(t, result.SharedRetired)
@@ -122,7 +123,7 @@ func TestCutoverGitLabRoleCredentialsSupportsCustomOwnRole(t *testing.T) {
 	tokens.seed(ProjectAccessToken{ID: 5, Name: gitlabroles.CustomTokenName("scanner"), Active: true, ExpiresAt: "2027-01-01"})
 
 	result, err := CutoverGitLabRoleCredentials(context.Background(), GitLabRoleCutoverConfig{
-		Owner: "group", Repo: "project", Client: fc, TokenInventory: tokens, DrainConfirmed: true,
+		Owner: "group", Repo: "project", Client: fc, TokenInventory: tokens,
 	})
 	require.NoError(t, err)
 	assert.True(t, result.Registered.Ready)
@@ -144,7 +145,7 @@ func TestCutoverGitLabRoleCredentialsRejectsCustomRoleWithoutMapping(t *testing.
 	tokens.seed(ProjectAccessToken{ID: 5, Name: gitlabroles.CustomTokenName("scanner"), Active: true, ExpiresAt: "2027-01-01"})
 
 	result, err := CutoverGitLabRoleCredentials(context.Background(), GitLabRoleCutoverConfig{
-		Owner: "group", Repo: "project", Client: fc, TokenInventory: tokens, DrainConfirmed: true,
+		Owner: "group", Repo: "project", Client: fc, TokenInventory: tokens,
 	})
 	require.Error(t, err)
 	assert.ErrorIs(t, err, ErrGitLabRoleCutoverNotReady)
@@ -164,7 +165,7 @@ func TestCutoverGitLabRoleCredentialsRejectsUnverifiedWithoutEnrollmentProof(t *
 	fc.Secrets["group/project/"+forge.SecretForgeToken] = true
 
 	_, err := CutoverGitLabRoleCredentials(context.Background(), GitLabRoleCutoverConfig{
-		Owner: "group", Repo: "project", Client: fc, TokenInventory: &fakeTokens{}, DrainConfirmed: true,
+		Owner: "group", Repo: "project", Client: fc, TokenInventory: &fakeTokens{},
 	})
 	require.Error(t, err)
 	assert.ErrorIs(t, err, ErrGitLabRoleCutoverNotReady)
@@ -189,7 +190,7 @@ func TestCutoverGitLabRoleCredentialsAcceptsAdministratorEnrollment(t *testing.T
 	tokens := &fakeTokens{}
 
 	result, err := CutoverGitLabRoleCredentials(context.Background(), GitLabRoleCutoverConfig{
-		Owner: "group", Repo: "project", Client: fc, TokenInventory: tokens, DrainConfirmed: true,
+		Owner: "group", Repo: "project", Client: fc, TokenInventory: tokens,
 	})
 	require.NoError(t, err)
 	assert.True(t, result.SharedRetired)
@@ -212,7 +213,7 @@ func TestCutoverGitLabRoleCredentialsRejectsUnhealthyLifecycle(t *testing.T) {
 	}
 
 	result, err := CutoverGitLabRoleCredentials(context.Background(), GitLabRoleCutoverConfig{
-		Owner: "group", Repo: "project", Client: fc, TokenInventory: tokens, DrainConfirmed: true,
+		Owner: "group", Repo: "project", Client: fc, TokenInventory: tokens,
 	})
 	require.Error(t, err)
 	assert.ErrorIs(t, err, ErrGitLabRoleCutoverNotReady)
@@ -253,7 +254,7 @@ func TestCutoverGitLabRoleCredentialsRevalidatesRegistryChange(t *testing.T) {
 	tokens := cutoverTokenInventory()
 
 	result, err := CutoverGitLabRoleCredentials(context.Background(), GitLabRoleCutoverConfig{
-		Owner: "group", Repo: "project", Client: client, TokenInventory: tokens, DrainConfirmed: true,
+		Owner: "group", Repo: "project", Client: client, TokenInventory: tokens,
 	})
 	require.Error(t, err)
 	assert.ErrorIs(t, err, ErrGitLabRoleCutoverStateChanged)

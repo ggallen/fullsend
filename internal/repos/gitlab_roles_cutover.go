@@ -49,24 +49,21 @@ func LockGitLabRoleOperation(owner, repo string) func() {
 	return lock.Unlock
 }
 
-// GitLabRoleCutoverConfig controls verification-and-cutover. `repos
-// install` calls this after provisioning when roles are ready.
-// DrainConfirmed guards the irreversible retirement of FULLSEND_FORGE_TOKEN
-// and is always passed as true by that caller; there is no longer an
-// operator-facing flag that sets it.
+// GitLabRoleCutoverConfig controls verification-and-retirement of the
+// leftover FULLSEND_FORGE_TOKEN shared credential. `repos install`
+// calls this after provisioning when roles are ready. There is no
+// operator-facing drain or migration flag.
 type GitLabRoleCutoverConfig struct {
 	Owner          string
 	Repo           string
 	Client         forge.Client
 	TokenInventory ProjectAccessTokenClient
-	DrainConfirmed bool
 	Now            time.Time
 	DryRun         bool
 }
 
 // GitLabRoleCutoverResult is the non-secret outcome of a cutover attempt.
 type GitLabRoleCutoverResult struct {
-	Mode          gitlabroles.Mode
 	Readiness     gitlabroles.BuiltinReadiness
 	Registered    gitlabroles.RegisteredReadiness
 	Lifecycle     gitlabroles.Report
@@ -78,7 +75,7 @@ type GitLabRoleCutoverResult struct {
 // CutoverGitLabRoleCredentials verifies every registered role and retires
 // FULLSEND_FORGE_TOKEN. The shared secret is deleted before its project access
 // tokens are revoked. Role routing is already fail-closed and does not depend
-// on a migration gate.
+// on a legacy migration state variable.
 //
 // This function never reads or returns secret values. It does not infer that
 // a role is ready from the presence of FULLSEND_FORGE_TOKEN.
@@ -87,15 +84,12 @@ func CutoverGitLabRoleCredentials(ctx context.Context, cfg GitLabRoleCutoverConf
 	if cfg.Client == nil {
 		return result, fmt.Errorf("GitLab role cutover requires a forge client")
 	}
-	if !cfg.DrainConfirmed {
-		return result, fmt.Errorf("GitLab role cutover requires confirmation that in-flight shared-token jobs are drained")
-	}
 	if cfg.TokenInventory == nil {
 		return result, fmt.Errorf("GitLab role cutover requires GitLab project-token inventory")
 	}
 	defer LockGitLabRoleOperation(cfg.Owner, cfg.Repo)()
 
-	mode, reg, present, err := LoadGitLabRoleState(ctx, cfg.Client, cfg.Owner, cfg.Repo)
+	reg, present, err := LoadGitLabRoleState(ctx, cfg.Client, cfg.Owner, cfg.Repo)
 	if err != nil {
 		return result, fmt.Errorf("loading GitLab role state for cutover: %w", err)
 	}
@@ -103,14 +97,13 @@ func CutoverGitLabRoleCredentials(ctx context.Context, cfg GitLabRoleCutoverConf
 	if err != nil {
 		return result, fmt.Errorf("loading GitLab role rotation state for cutover: %w", err)
 	}
-	result.Mode = mode
 	result.Readiness = gitlabroles.CheckBuiltinReadiness(present, reg)
 	result.Registered = gitlabroles.CheckRegisteredReadiness(present, reg)
 	tokens, listErr := cfg.TokenInventory.ListProjectAccessTokens(ctx, cfg.Owner, cfg.Repo)
 	if listErr != nil {
 		return result, fmt.Errorf("listing GitLab project tokens for cutover: %w", listErr)
 	}
-	result.Lifecycle = cutoverLifecycle(mode, present, reg, tokens, rotation, cfg.Now)
+	result.Lifecycle = cutoverLifecycle(present, reg, tokens, rotation, cfg.Now)
 	lifecycle := make(map[gitlabroles.Role]gitlabroles.LifecycleState, len(result.Lifecycle.Roles))
 	for _, role := range result.Lifecycle.Roles {
 		lifecycle[role.Name] = role.Lifecycle
@@ -126,7 +119,11 @@ func CutoverGitLabRoleCredentials(ctx context.Context, cfg GitLabRoleCutoverConf
 		return result, fmt.Errorf("%w: %s", ErrGitLabRoleCutoverNotReady, cutoverMissingRoles(result))
 	}
 	if cfg.DryRun {
-		result.SharedRetired = secretPresent(present, forge.SecretForgeToken)
+		sharedPresent, sharedErr := cfg.Client.RepoSecretExists(ctx, cfg.Owner, cfg.Repo, forge.SecretForgeToken)
+		if sharedErr != nil {
+			return result, fmt.Errorf("checking legacy shared GitLab credential: %w", sharedErr)
+		}
+		result.SharedRetired = sharedPresent
 		result.Diagnostics = append(result.Diagnostics, "dry-run: would retire FULLSEND_FORGE_TOKEN")
 		return result, nil
 	}
@@ -136,7 +133,7 @@ func CutoverGitLabRoleCredentials(ctx context.Context, cfg GitLabRoleCutoverConf
 	// or an operator changes the registry or role secrets while verification is
 	// in progress. GitLab does not expose a repository-scoped CAS for this
 	// compound operation, so callers must still serialize concurrent cutovers.
-	latestMode, latestReg, latestPresent, err := LoadGitLabRoleState(ctx, cfg.Client, cfg.Owner, cfg.Repo)
+	latestReg, latestPresent, err := LoadGitLabRoleState(ctx, cfg.Client, cfg.Owner, cfg.Repo)
 	if err != nil {
 		return result, fmt.Errorf("revalidating GitLab role state before cutover: %w", err)
 	}
@@ -144,7 +141,7 @@ func CutoverGitLabRoleCredentials(ctx context.Context, cfg GitLabRoleCutoverConf
 	if rotationErr != nil {
 		return result, fmt.Errorf("revalidating GitLab role rotation state before cutover: %w", rotationErr)
 	}
-	if latestMode != mode || !reflect.DeepEqual(latestReg, reg) || !reflect.DeepEqual(latestPresent, present) || !reflect.DeepEqual(latestRotation, rotation) {
+	if !reflect.DeepEqual(latestReg, reg) || !reflect.DeepEqual(latestPresent, present) || !reflect.DeepEqual(latestRotation, rotation) {
 		return result, fmt.Errorf("%w; rerun cutover", ErrGitLabRoleCutoverStateChanged)
 	}
 	latestBuiltin := gitlabroles.CheckBuiltinReadiness(latestPresent, latestReg)
@@ -153,7 +150,7 @@ func CutoverGitLabRoleCredentials(ctx context.Context, cfg GitLabRoleCutoverConf
 	if listErr != nil {
 		return result, fmt.Errorf("relisting GitLab project tokens before cutover: %w", listErr)
 	}
-	latestLifecycle := cutoverLifecycle(latestMode, latestPresent, latestReg, tokens, latestRotation, cfg.Now)
+	latestLifecycle := cutoverLifecycle(latestPresent, latestReg, tokens, latestRotation, cfg.Now)
 	lifecycle = make(map[gitlabroles.Role]gitlabroles.LifecycleState, len(latestLifecycle.Roles))
 	for _, role := range latestLifecycle.Roles {
 		lifecycle[role.Name] = role.Lifecycle
@@ -187,8 +184,8 @@ func CutoverGitLabRoleCredentials(ctx context.Context, cfg GitLabRoleCutoverConf
 	return result, nil
 }
 
-func cutoverLifecycle(mode gitlabroles.Mode, present map[string]bool, reg gitlabroles.Registry, tokens []ProjectAccessToken, rotation rotationStateFile, now time.Time) gitlabroles.Report {
-	report := gitlabroles.DiagnoseLifecycle(mode, present, reg, snapshotsFrom(tokens), now, gitlabroles.DefaultRotationLead)
+func cutoverLifecycle(present map[string]bool, reg gitlabroles.Registry, tokens []ProjectAccessToken, rotation rotationStateFile, now time.Time) gitlabroles.Report {
+	report := gitlabroles.DiagnoseLifecycle(present, reg, snapshotsFrom(tokens), now, gitlabroles.DefaultRotationLead)
 	applyAdministratorEnrollmentProof(&report, reg, rotation)
 	return report
 }

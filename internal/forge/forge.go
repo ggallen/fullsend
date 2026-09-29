@@ -110,11 +110,9 @@ const (
 	VarPollMode       = "FULLSEND_POLL_MODE"
 	VarGitLabBotToken = "FULLSEND_GITLAB_BOT_TOKEN"
 
-	// VarGitLabRoleMigration is the GitLab role-identity gate. Absent or
-	// empty means disabled leftover shared-token install state. Runtime
-	// jobs require a registered role credential regardless of gate mode.
-	// Operator-settable values are enforced and rollback. Leftover
-	// disabled and migrating values remain parseable. See
+	// VarGitLabRoleMigration is leftover GitLab role-identity-gate state.
+	// Runtime, install, and status ignore it. Uninstall still deletes it
+	// so older repositories do not retain the variable. See
 	// internal/gitlabroles.
 	VarGitLabRoleMigration = "FULLSEND_GITLAB_ROLE_MIGRATION"
 
