@@ -91,7 +91,11 @@ func createIssue(w *world.World, title, body string) error {
 		return fmt.Errorf("no repo configured; call 'Given the enrolled test repository' before creating issues")
 	}
 	trigger := time.Now()
-	issue, err := w.SCM.CreateIssue(context.Background(), w.RepoOwner, w.RepoName, title, body)
+	issueSCM := w.SCM
+	if w.IssueSCM != nil {
+		issueSCM = w.IssueSCM
+	}
+	issue, err := issueSCM.CreateIssue(context.Background(), w.RepoOwner, w.RepoName, title, body)
 	if err != nil {
 		return err
 	}
