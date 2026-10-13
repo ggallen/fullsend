@@ -18,6 +18,35 @@ A fixed-history compression gives **33 review runs at about $135.35**, versus th
 
 This is a scenario, not a reconstruction of what the PR would actually have cost. It assumes every issue present at a retained head is found and addressed together, while preserving the later code changes and their observed review costs. Earlier fixes would have changed later heads; some findings were disputed, advisory, or duplicates of one root cause, and a fix may need a verification review even if that head introduces no new finding. The $44.06 of observed fix-agent cost is excluded because the ledger cannot predict the number or size of fixes in that alternate history.
 
+## How each agent contributed to the cycles
+
+### Initial code agent
+
+The [initial commit](https://github.com/fullsend-ai/fullsend/commit/db5f8b12b17dc56c6306c30834309003ba7ffecb) implemented the headline activation in [issue #8242](https://github.com/fullsend-ai/fullsend/issues/8242): live service-account wiring, status and Poller reconciliation, version 2 rotation-state writes, and ownership resolvers. It was a substantial implementation, but three safety requirements already in the issue when the code agent started were not met by the first reviewed head:
+
+- **Supplied-PAT non-revocation:** the [run 1 review](https://github.com/fullsend-ai/fullsend/pull/8313#discussion_r4239074461) identified a path where an unrecorded supplied owner loses its exclusion and a later rotation or uninstall can select that administrator-supplied PAT for revocation.
+- **Supplied-credential helper parity:** the initial commit documented why `InventoryCoverage` was supposedly unnecessary, but the [run 2 review](https://github.com/fullsend-ai/fullsend/pull/8313#discussion_r4239162962) found that an ordinary user's supplied PAT was absent from the operational inventories and could be replaced during an unflagged install. The behavior was assessable in run 1.
+- **O2 legacy fail-static behavior:** the [run 7 review](https://github.com/fullsend-ai/fullsend/pull/8313#discussion_r4239553186) found that a legacy credential without creation provenance could be replaced by the rotation pass after provisioning left it alone. This contradicted the issue's explicit fail-static requirement and was assessable in run 1.
+
+These were gaps in the initial submission that required later correction; they were not merely new requirements invented during review. The issue's body was also expanded on **October 12 at 11:22 UTC**, after the first 32 reviews, to spell out additional rotation safety and supplied-Poller access behavior. Those later additions cannot all be counted as missing checklist items in the original assignment. The issue edit history, initial head, and linked findings support this distinction; they do not show how many complete cycles a better first submission would have saved.
+
+### Review agent
+
+Of 122 finding IDs, **87** were first reported after the earliest reviewed head where their described behavior was assessed as present. **36** IDs were assessable in run 1, but only **four** were reported there. The legacy fail-static gap above, for example, surfaced in run 7 despite being present in the initial head. The [outside-inventory supplied-PAT status gap](https://github.com/fullsend-ai/fullsend/pull/8313#pullrequestreview-5486305470) first surfaced in run 32 although its historical enrollment-proof path was already present in run 1. Earlier detection could have allowed the fix agent to batch some corrections and avoid later rediscovery.
+
+The 87 are finding IDs, not 87 independent defects or avoidable reviews: some IDs duplicate a root cause, and some findings were advisory, disputed, or later reclassified. Later code also created new behavior that the first review could not inspect. The fixed-history 33-run estimate above measures a review-timing scenario, not the effect of review quality alone in a rerun of the PR.
+
+### Fix agent
+
+**26** finding IDs remained open in at least one later review, for **40** item-run carryovers across 25 review runs. Seven explicitly disputed findings account for **19** of those carryovers; disagreement alone does not establish that the finding was valid or that a fix was attempted. Specific fix responses do show partial corrections that required another review and fix:
+
+- The fix agent [reported deleted-managed-account recovery as fixed](https://github.com/fullsend-ai/fullsend/pull/8313#issuecomment-6135339347) after run 44. [Run 45](https://github.com/fullsend-ai/fullsend/pull/8313#discussion_r4253656135) found that an ordinary later install still failed without the supplied-token flag.
+- After a [status fix](https://github.com/fullsend-ai/fullsend/pull/8313#issuecomment-6136017835) for an absent historical managed account, [run 47](https://github.com/fullsend-ai/fullsend/pull/8313#discussion_r4253894699) found that the new backing filter missed an account during an in-flight supplied-to-managed replacement.
+- The agent [guarded nil verification only in legacy credential creation](https://github.com/fullsend-ai/fullsend/pull/8313#issuecomment-6136384576); [run 48](https://github.com/fullsend-ai/fullsend/pull/8313#discussion_r4254032281) found that service-account creation still allowed the same gap. The next fix covered that path and the rotation wrapper.
+- The [failed supplied-Poller merge grant](https://github.com/fullsend-ai/fullsend/pull/8313#discussion_r4251630341) carried through runs 41–44. The fix agent [deferred it](https://github.com/fullsend-ai/fullsend/pull/8313#issuecomment-6131344623) until the maintainer [required an in-PR fix](https://github.com/fullsend-ai/fullsend/pull/8313#issuecomment-6133199994).
+
+Other fixes created newly reviewable defects: the [malformed-expiry bypass](https://github.com/fullsend-ai/fullsend/pull/8313#discussion_r4253656142) was introduced by the run 45 health skip and could not have been found in an earlier head. Initial-code gaps, review lag, partial fixes, changed requirements, and final verification interact; their costs cannot be added or cleanly assigned to individual agents from this history.
+
 ## Review run ledger
 
 The full per-run IDs are in [pr-8313-review-runs.csv](pr-8313-review-runs.csv).
@@ -233,4 +262,4 @@ These are the finding IDs that were both carried open and explicitly disputed or
 
 ## Practical conclusion
 
-Large discovery lags coexist with fix introduced regressions. For example, the version 2 migration, outside-inventory status handling, missing verifier guard, and several documentation errors were present in early reviewed heads, while the malformed expiry bypass and in flight managed account filter arose from late fixes. The $195.25 total is observable; exact savings from perfect earlier detection cannot be derived by subtracting runs because each fix changes the code to be reviewed.
+The cycle count reflects incomplete initial acceptance, large review discovery lags, partial fixes, fix-introduced regressions, and issue scope changes. For example, outside-inventory status handling and several documentation errors were present in early reviewed heads, while the malformed expiry bypass and in-flight managed-account filter arose from late fixes. The $195.25 review cost is observable; exact savings from changing any one agent's behavior cannot be derived by subtracting runs because each fix changes the code to be reviewed.
