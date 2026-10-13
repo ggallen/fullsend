@@ -12,6 +12,12 @@ Source: [PR #8313](https://github.com/fullsend-ai/fullsend/pull/8313), its revie
 - `earliest possible` records the earliest reviewed head where the described behavior was found. For the 42 previously tentative items, the `assessment_evidence` column in the item CSV now states the behavior checked in that head. `first evidenced` means no earlier reviewed head was substantiated by the examined path; it is not proof that no earlier issue existed.
 - Review snapshots retain only the latest five runs in the visible sticky comment, but GitHub comment edit history supplies all 49 full snapshots.
 
+## Counterfactual review-cycle estimate
+
+A fixed-history compression gives **33 review runs at about $135.35**, versus the observed **49 runs at $195.25**: **16 fewer runs and $59.90 less review-model cost**. Of the 49 reviewed heads, 32 are the earliest assessed head for at least one finding. The estimate keeps those 32 reviews and one final clean review, charges each its observed cost ($131.12 plus $4.23), and removes the other 16 reviews.
+
+This is a scenario, not a reconstruction of what the PR would actually have cost. It assumes every issue present at a retained head is found and addressed together, while preserving the later code changes and their observed review costs. Earlier fixes would have changed later heads; some findings were disputed, advisory, or duplicates of one root cause, and a fix may need a verification review even if that head introduces no new finding. The $44.06 of observed fix-agent cost is excluded because the ledger cannot predict the number or size of fixes in that alternate history.
+
 ## Review run ledger
 
 The full per-run IDs are in [pr-8313-review-runs.csv](pr-8313-review-runs.csv).
