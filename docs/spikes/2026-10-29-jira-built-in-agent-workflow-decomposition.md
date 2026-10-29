@@ -2,7 +2,7 @@
 
 **Date:** 2026-10-29
 
-**Status:** For review; no parent or sub-issues have been created.
+**Status:** Approved; issue tree created, linked, and dependencies configured.
 
 **Scope:** Jira as the work-item tracker for triage and code, with either
 GitHub or GitLab as the code host and its existing pull request or merge
@@ -11,10 +11,10 @@ request workflow.
 **Out of scope:** Jira repository-install setup tracked by
 [fullsend#8906](https://github.com/fullsend-ai/fullsend/issues/8906).
 
-This note proposes an issue hierarchy, deliverables, dependencies, and
-acceptance criteria. It is a planning proposal, not an implementation or an
-accepted architecture decision. Create the issue tree only after the scope
-and open decisions below are agreed.
+This note records the approved issue hierarchy, deliverables, dependencies,
+and acceptance criteria. It is a planning document, not an implementation or
+an accepted architecture decision. The remaining test-environment question is
+assigned to the vertical validation issue.
 
 ## Jira's role in the workflow
 
@@ -82,20 +82,20 @@ reparent only as part of the reviewed hierarchy change. Confirm #2264 is still
 open and still matches the identity-plumbing scope before reusing it.
 
 ```text
-fullsend#NEW — Use Jira as the work-item tracker for the built-in agent loop
+fullsend#8918 — Use Jira as the work-item tracker for the built-in agent loop
 ├── fullsend#2264 — Preserve Jira work-item identity through agent execution
-├── fullsend#NEW — Dispatch Jira work items to GitLab code-host pipelines
-├── fullsend#NEW — Write triage and code results to the Jira work item
+├── fullsend#8919 — Dispatch Jira work items to GitLab code-host pipelines
+├── fullsend#8920 — Write triage and code results to the Jira work item
 ├── agents#1067 — Complete work-item and PR/MR triggers for the agent loop
-└── fullsend#NEW — Verify Jira-to-code-host workflow and regressions
+└── fullsend#8921 — Verify Jira work items through the built-in PR lifecycle
 ```
 
-The `NEW` entries are proposals; do not create them until this plan is agreed.
-Keep focused unit/fixture tests and component docs in the issue that owns the
+The parent-child relationships and blocker edges are set on GitHub. Keep
+focused unit/fixture tests and component docs in the issue that owns the
 behavior. The final validation issue owns only the cross-repository vertical
 scenario.
 
-### Parent issue — new, `fullsend-ai/fullsend`
+### Parent issue — created, `fullsend-ai/fullsend#8918`
 
 **Proposed title:** Use Jira as the work-item tracker for the built-in agent loop.
 
@@ -142,7 +142,7 @@ malformed or missing Jira identity fails closed before scripts run.
 
 **Dependencies:** none. Agent harness work consumes this contract.
 
-### Child 2 — new, `fullsend-ai/fullsend`: dispatch Jira work items to GitLab
+### Child 2 — created, `fullsend-ai/fullsend#8919`: dispatch Jira work items to GitLab
 
 **Proposed title:** Dispatch Jira work items to GitLab code-host pipelines.
 
@@ -190,7 +190,7 @@ provisioning remain in #8906.
 GitLab pipeline input/dispatch adapter and scaffold, and
 `docs/guides/user/jira-integration.md`.
 
-### Child 3 — new, `fullsend-ai/fullsend`: write triage/code results to Jira
+### Child 3 — created, `fullsend-ai/fullsend#8920`: write triage/code results to Jira
 
 **Proposed title:** Write triage and code results to the Jira work item.
 
@@ -269,7 +269,7 @@ writeback acceptance also depends on Child 3.
 `harness/fix.yaml`, review/retro trigger regression tests, `harness/triggertest/`,
 code Jira pre/post scripts, and the corresponding `docs/{triage,code,fix}.md`.
 
-### Child 5 — new, `fullsend-ai/fullsend`: vertical validation
+### Child 5 — created, `fullsend-ai/fullsend#8921`: vertical validation
 
 **Proposed title:** Verify Jira work items through the built-in PR lifecycle.
 
@@ -301,10 +301,10 @@ fixture tests; this issue owns only the cross-repository flow.
 | Order | Work | Depends on | Can run in parallel with |
 |---|---|---|---|
 | 1 | Child 1: Jira work-item identity (#2264) | — | — |
-| 2 | Child 2: Jira dispatch to GitLab pipelines | Child 1 | Children 3 and 4 |
-| 2 | Child 3: Jira triage/code writeback | Child 1 | Children 2 and 4 |
+| 2 | Child 2: Jira dispatch to GitLab pipelines (#8919) | Child 1 | Children 3 and 4 |
+| 2 | Child 3: Jira triage/code writeback (#8920) | Child 1 | Children 2 and 4 |
 | 2 | Child 4: agent triggers and Jira/code-host harness behavior (#1067) | Child 1 for Jira execution | Children 2 and 3 after their contracts are agreed |
-| 3 | Child 5: vertical behavior validation | Children 1–4 | — |
+| 3 | Child 5: vertical behavior validation (#8921) | Children 1–4 | — |
 
 The shared URL/key contract should be settled first. GitLab dispatch,
 writeback, and harness trigger changes can then proceed in parallel once their
@@ -336,10 +336,11 @@ events.
 - Test existing GitHub/GitLab fixtures and workflow projections alongside
   Jira cases before merge.
 
-## Open decisions for review
+## Remaining implementation question
 
-1. Which existing test environment can exercise both GitHub and GitLab
-   vertical flows without requiring installation/setup work from #8906?
+Which existing test environment can exercise both GitHub and GitLab vertical
+flows without requiring installation/setup work from #8906? Resolve this in
+Child 5.
 
 ## Explicit exclusions
 
