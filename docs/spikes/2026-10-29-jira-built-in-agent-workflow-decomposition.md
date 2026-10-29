@@ -25,15 +25,13 @@ not replace the code host or its PR/MR lifecycle.
 2. Code reads a Jira work item, changes code in the configured repository,
    and opens a PR/MR in GitHub or GitLab. The PR/MR should include the Jira
    key and URL for human traceability.
-3. Review, fix, and retro continue to run from code-host PR/MR events and
-   operate on the PR/MR. They do not need Jira credentials, Jira API calls,
-   Jira slash commands, or Jira-specific normalized-event fields under this
-   scope.
+3. PR/MR lifecycle stages continue to run from code-host events and operate
+   on the PR/MR. This scope does not add Jira integration to those stages.
 
 The Jira issue key in the PR/MR is a reference, not an authorization signal
-or a requirement for those PR-stage agents to call Jira. If a later product
-requirement asks review/fix/retro to update the Jira ticket or be manually
-invoked from Jira, that is separate work and should be scoped explicitly.
+or a reason for PR/MR processing to call Jira. If a later product requirement
+asks for Jira-side PR lifecycle updates or issue-based PR commands, scope that
+separately.
 
 ## Current state
 
@@ -44,18 +42,12 @@ invoked from Jira, that is separate work and should be scoped explicitly.
 - `code.yaml` already has a Jira overlay and `pre-code-jira.sh`, but no
   `trigger:`. The overlay supplies the Jira work-item URL and deliberately
   clears `ISSUE_NUMBER`; exercise the complete path and preserve the Jira key.
-- `fix.yaml` has no trigger. If fix is part of the standard PR/MR lifecycle,
-  add or verify its code-host changes-requested/`/fs-fix` trigger. That is a
-  forge workflow requirement, not Jira-specific work.
-- `review.yaml` already has change-proposal triggers and GitHub/GitLab forge
-  configuration. `retro.yaml` already has change-proposal lifecycle logic
-  limited to GitHub/GitLab. Keep these paths native to the code host.
 - Jira polling emits `entity.kind: work_item` events for issue changes. That
   is sufficient for triage and code. It does not need to synthesize PR/MR
   lifecycle events or attach change-proposal data to Jira issue events.
 - The Jira guide currently says `/fs-triage`, `/fs-code`, and
-  `ready-to-code` are work-item routes; review/fix/retro are PR-scoped. It
-  also says substantive output defaults to GitHub and points to
+  `ready-to-code` are work-item routes. It also says substantive output
+  defaults to GitHub and points to
   [fullsend#2264](https://github.com/fullsend-ai/fullsend/issues/2264) for
   Jira pipeline identity work. See
   [`jira-integration.md`](../guides/user/jira-integration.md).
@@ -98,7 +90,7 @@ implementation work. Its acceptance criteria are:
 - Triage's issue updates and code's created PR/MR link are available on the
   Jira work item.
 - Code changes and PR/MR creation stay in the configured GitHub/GitLab repo.
-- Review, fix, and retro continue to trigger from code-host PR/MR events and
+- Existing PR/MR lifecycle stages continue to run from code-host events and
   keep their existing code-host outputs.
 - Existing GitHub and GitLab issue and PR/MR flows pass unchanged.
 - A vertical test proves the Jira issue → code PR/MR → review/fix/retro flow
