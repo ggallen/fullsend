@@ -122,25 +122,31 @@ fullsend#8906 can proceed separately and in parallel.
 
 ### Child 1 — existing, `fullsend-ai/fullsend#2264`: preserve work-item identity
 
-Use #2264 for the Jira work-item key/URL pipeline gap, subject to confirming
-its current body still matches this scope. Ensure Jira identity stays distinct
-from forge issue numbers:
+The runner-side identity contract is under review in
+[fullsend#8922](https://github.com/fullsend-ai/fullsend/pull/8922). Keep Jira
+identity distinct from forge issue numbers:
 
 - Preserve `FULLSEND_WORK_ITEM_URL`, `FULLSEND_WORK_ITEM_SOURCE`, and
   `FULLSEND_WORK_ITEM_KEY` through dispatch, reusable workflows, runners, and
   triage/code scripts.
 - Keep Jira's textual key (for example `PROJ-123`) in the generic key field.
   Do not put it in numeric `ISSUE_NUMBER` or `status-number` fields.
+- Keep Jira's numeric entity ID in `status-number` for tracker status routing
+  where required. It must not be treated as a forge issue or PR/MR number, and
+  Jira runs keep `ISSUE_NUMBER` empty.
 - Preserve current numeric GitHub/GitLab issue and PR/MR variables for
   forge-originated runs.
 - Remove assumptions that every work-item URL is a GitHub/GitLab URL while
   retaining existing validation for those sources.
 
-**Acceptance:** Jira key and URL reach triage and code; existing
-GitHub/GitLab environment-variable and payload behavior remains unchanged;
-malformed or missing Jira identity fails closed before scripts run.
+**Acceptance:** `fullsend run` exposes Jira source, key, and URL to triage and
+code before scripts or harness env expansion, and clears `ISSUE_NUMBER`;
+existing GitHub/GitLab environment-variable and payload behavior remains
+unchanged; malformed or missing Jira identity fails closed before scripts run.
 
-**Dependencies:** none. Agent harness work consumes this contract.
+**Dependencies:** none. Downstream child issues remain blocked until the
+contract is implemented, merged, and verified. Agent harness work consumes
+this contract.
 
 ### Child 2 — created, `fullsend-ai/fullsend#8919`: dispatch Jira work items to GitLab
 
@@ -306,11 +312,13 @@ fixture tests; this issue owns only the cross-repository flow.
 | 2 | Child 4: agent triggers and Jira/code-host harness behavior (#1067) | Child 1 for Jira execution | Children 2 and 3 after their contracts are agreed |
 | 3 | Child 5: vertical behavior validation (#8921) | Children 1–4 | — |
 
-The shared URL/key contract should be settled first. GitLab dispatch,
-writeback, and harness trigger changes can then proceed in parallel once their
-target and output contracts are agreed. No Jira-to-PR event association is a
-prerequisite: PR/MR lifecycle agents continue to receive native code-host
-events.
+The runner-side URL/key contract is under review in PR #8922; #2264 remains a
+blocker until that work is merged and verified. After #2264 closes, #8919,
+#8920, and agents#1067 can proceed in parallel: Jira activity targets the
+configured GitHub repository or GitLab project; triage and code work-item
+results go to Jira; code artifacts and PR/MR lifecycle work stay on the
+selected code host. No Jira-to-PR event association is a prerequisite;
+PR/MR lifecycle agents continue to receive native code-host events.
 
 ## Non-regression requirements
 
