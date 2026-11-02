@@ -58,7 +58,8 @@ project. It is not a fallback or a per-command project override. Polling is
 controlled by `poll.enabled`; `poll.query` supplies the JQL filter. When
 `poll.enabled` is `true`, `fullsend repos install` installs the Jira polling
 pieces. When it is `false`, `repos install` removes the Jira polling pieces it
-manages.
+manages. If `poll` or `poll.enabled` is missing from the effective config, the
+poll workflow is not installed.
 
 GitHub and GitLab keep their current scalar form (`tracker: github` and
 `tracker: gitlab`). Credentials stay out of `config.yaml` and `repos.yaml`.
@@ -155,7 +156,8 @@ where it depends on the config contract.
 - Treat `project` as the sole Jira project for the repository, used by polling
   and Jira issue commands.
 - Define `poll.enabled: true` to install the Jira poller through
-  `fullsend repos install` and `false` to remove its managed pieces.
+  `fullsend repos install`, `false` to remove its managed pieces, and a
+  missing `poll` or `poll.enabled` value to leave the poll workflow uninstalled.
 - Support the structure under `.fullsend/config.yaml` and `repos.yaml` managed
   config, with defined field-wise inheritance for Jira settings.
 - Keep tokens and emails out of configuration.
@@ -165,6 +167,8 @@ where it depends on the config contract.
 - Have `fullsend repos install` install the Jira poller workflow and its
   required support files when `tracker.jira.poll.enabled` is `true`.
 - Remove the Jira poller pieces managed by Fullsend when it is `false`.
+- Leave the poll workflow uninstalled when `poll` or `poll.enabled` is absent
+  from the effective config.
 - Keep the operation idempotent and leave unrelated repository files alone.
 - Link this issue to #8906 and #9035; the schema issue defines the setting this
   behavior consumes.
@@ -214,9 +218,6 @@ where it depends on the config contract.
 
 ## Open questions
 
-- What should `repos install` do when `poll` or `poll.enabled` is omitted, and
-  should an explicit poll command fail or succeed as a no-op when polling is
-  disabled?
 - What query runs when `poll.query` is omitted? The current poller defaults to
   non-done issues ordered by most recent update.
 - How should the same `FULLSEND_JIRA_TOKEN` secret reach a selected host-side
