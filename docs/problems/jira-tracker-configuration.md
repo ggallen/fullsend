@@ -115,17 +115,24 @@ The poll command reads URL, project, enabled state, and query from config. Its
 remaining command-line inputs are operational values such as `--target-repo`,
 `--output`, and `--fullsend-dir`; `FULLSEND_JIRA_TOKEN` is the Jira credential.
 
-## Options and trade-offs
+## Implementation direction
 
-| Option | Benefits | Costs |
-|---|---|---|
-| Let all Fullsend Jira clients and agent scripts call the API gateway with the scoped token | One credential and URL model across polling, issue commands, status updates, reconciliation, and scripts | Requires Cloud ID lookup, client changes, agent-provider and egress updates, and migration guidance |
-| Route agent scripts through `fullsend issues` where its command surface is sufficient | Keeps config and API details inside Fullsend; scripts do not construct Jira URLs | Custom scripts cannot use Jira endpoints that `fullsend issues` does not expose |
-| Configure `cloud_id` explicitly instead of discovering it from `base_url` | Avoids a tenant-info lookup at runtime and simplifies script URL construction | Adds another repository setting to maintain and validate |
+Use one scoped Jira token and the API gateway for all Fullsend Jira access,
+including the poller, `fullsend issues`, run-status updates, reconciliation,
+and agent scripts. Send `FULLSEND_JIRA_TOKEN` as a Bearer token; do not require
+or pass an account email.
 
-The working direction from this discussion is the first option. This remains a
-design proposal; implementation details and compatibility behavior should be
-settled in the linked issues before code changes land.
+Agent scripts should call `fullsend issues` when its command surface covers the
+operation. For other Jira operations, scripts may call the REST API directly
+using the same token and the configured `api_url`.
+
+Discover and cache the Jira Cloud ID from `base_url`'s `/_edge/tenant_info`
+endpoint. `cloud_id` is not a config field in this design. `base_url` remains
+the site URL for issue links and Cloud ID lookup; `api_url` is the gateway base
+for authenticated REST calls.
+
+This remains a design proposal; implementation details and compatibility
+behavior should be settled in the linked issues before code changes land.
 
 ## Proposed issue breakdown
 
