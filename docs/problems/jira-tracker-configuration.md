@@ -91,11 +91,17 @@ authentication through `api_url`. Atlassian documents this
 {api_url}/ex/jira/{cloudId}/rest/api/3/{resource}
 ```
 
-`base_url` identifies the Jira site, supports issue browse links, and can
-resolve the Cloud ID at `/_edge/tenant_info`. Atlassian documents this
-[Cloud ID lookup](https://support.atlassian.com/jira/kb/retrieve-my-atlassian-sites-cloud-id/)
+`base_url` identifies the Jira site, supports issue browse links, and is used
+to resolve the Cloud ID at `${base_url}/_edge/tenant_info`. Atlassian documents
+this [Cloud ID lookup](https://support.atlassian.com/jira/kb/retrieve-my-atlassian-sites-cloud-id/)
 and requires the API gateway URL format for scoped service-account tokens
 ([guidance](https://support.atlassian.com/atlassian-cloud/kb/401-unauthorized-error-when-service-account-accesses-jira-or-confluence-api/)).
+
+`api_url` is the API gateway base URL. Fullsend appends the standard
+`/ex/jira/{cloudId}/rest/api/3/{resource}` path to it. An override replaces
+only the gateway base and must be a compatible gateway or proxy that supports
+that path. Cloud ID discovery always uses `base_url`, regardless of the
+`api_url` override.
 
 Agent scripts can use the same token. A script that calls Jira directly uses
 Bearer auth and the API gateway URL; alternatively, a script can call
@@ -228,11 +234,6 @@ where it depends on the config contract.
   harness-reference, operations, and config-reference documentation.
 - Preserve explicit secret selection so a Jira token is not inherited by every
   host-side script or exposed to the sandboxed model.
-
-## Open questions
-
-- How should a non-default `api_url` override affect the gateway path and
-  Cloud ID discovery?
 
 ## Secret delivery requirement
 
