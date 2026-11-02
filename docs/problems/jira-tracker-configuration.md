@@ -50,10 +50,11 @@ tracker:
       query: 'labels = "fullsend" AND statusCategory != Done ORDER BY updated DESC'
 ```
 
-`base_url` is required for the Jira mapping. `api_url` is optional and defaults
-to Atlassian's API gateway. `project` is the repository's Jira project and is
-the default project for polling and Jira issue commands. Polling is controlled
-by `poll.enabled`; `poll.query` supplies the JQL filter.
+`base_url` and `project` are required for the Jira mapping. `api_url` is
+optional and defaults to Atlassian's API gateway. `project` identifies the
+repository's only Jira project; polling and Jira issue commands use that
+project. It is not a fallback or a per-command project override. Polling is
+controlled by `poll.enabled`; `poll.query` supplies the JQL filter.
 
 GitHub and GitLab keep their current scalar form (`tracker: github` and
 `tracker: gitlab`). The Jira token and any account email stay out of
@@ -142,9 +143,11 @@ where it depends on the config contract.
 ### Existing: #9035 — define the Jira tracker configuration
 
 - Preserve scalar `tracker: github` and `tracker: gitlab`.
-- Add `tracker.jira` fields for required `base_url`, optional `api_url` with
-  the `https://api.atlassian.com` default, `project`, and `poll.enabled` /
+- Add `tracker.jira` fields for required `base_url` and `project`, optional
+  `api_url` with the `https://api.atlassian.com` default, and `poll.enabled` /
   `poll.query`.
+- Treat `project` as the sole Jira project for the repository, used by polling
+  and Jira issue commands.
 - Support the structure under `.fullsend/config.yaml` and `repos.yaml` managed
   config, with defined field-wise inheritance for Jira settings.
 - Keep tokens and emails out of configuration.
@@ -172,8 +175,9 @@ where it depends on the config contract.
 
 - Use the shared config and scoped-token client for `fullsend issues get`,
   `create`, `post-comment`, and `link`.
-- Use `tracker.jira.project` as the Jira project default while retaining an
-  explicit project override where cross-project operations need it.
+- Use the required `tracker.jira.project` as the only Jira project for the
+  repository's Jira issue commands; do not treat it as a fallback or expose a
+  per-command Jira project override.
 - Migrate `fullsend run` Jira status updates and `reconcile-status` to config
   plus `FULLSEND_JIRA_TOKEN`.
 - Remove or deprecate the Jira email/URL flags and legacy environment names
@@ -193,8 +197,6 @@ where it depends on the config contract.
 
 ## Open questions
 
-- Is Jira project required whenever polling is enabled, and should
-  `fullsend issues` use it automatically when `--project` is omitted?
 - Is polling disabled when `poll` or `poll.enabled` is omitted, and should an
   explicit poll command fail or succeed as a no-op when polling is disabled?
 - What query runs when `poll.query` is omitted? The current poller defaults to
