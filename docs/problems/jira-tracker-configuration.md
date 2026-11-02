@@ -18,8 +18,9 @@ Tracker-routed status updates are specified by
   settings.
 - `fullsend poll --input-driver jira-poll` accepts Jira URL, project, and JQL
   through flags, with URL and repository fallbacks from environment variables.
-  The Jira client uses Basic authentication against the Jira site URL and
-  requires both `JIRA_USER_EMAIL` and `JIRA_TOKEN`.
+  The Jira client currently uses Basic authentication and requires
+  `JIRA_USER_EMAIL` with `JIRA_TOKEN`; this legacy behavior is removed by the
+  proposed token-only design.
 - `fullsend issues` reads the default tracker from config. Jira URL, email, and
   token still come from flags or `JIRA_BASE_URL`, `JIRA_USER_EMAIL`, and
   `JIRA_TOKEN`. The project is currently required on each command.
@@ -57,8 +58,9 @@ project. It is not a fallback or a per-command project override. Polling is
 controlled by `poll.enabled`; `poll.query` supplies the JQL filter.
 
 GitHub and GitLab keep their current scalar form (`tracker: github` and
-`tracker: gitlab`). The Jira token and any account email stay out of
-`config.yaml` and `repos.yaml`.
+`tracker: gitlab`). Credentials stay out of `config.yaml` and `repos.yaml`.
+The target Jira flow uses only `FULLSEND_JIRA_TOKEN`; no account email is part
+of its configuration or authentication.
 
 When this mapping is used in `repos.yaml`, it belongs under the existing
 managed `config` key. Layered configuration should allow an installation-level
@@ -67,17 +69,12 @@ query. A child scalar tracker selection replaces the inherited Jira mapping.
 
 ## Authentication and URL roles
 
-The email requirement follows from the current Basic-auth implementation. A
-classic Atlassian API token used with Basic authentication is paired with its
-account email. Atlassian also supports scoped API tokens sent as Bearer tokens
-through the API gateway; that flow needs no email. See Atlassian's
-[Basic-auth guide](https://developer.atlassian.com/cloud/jira/service-desk-ops/security/basic-auth-for-rest-apis/)
-and [scoped-token guidance](https://support.atlassian.com/user-management/docs/manage-api-tokens-for-service-accounts/).
-
-The intended token-only path uses a scoped API token from the
-`FULLSEND_JIRA_TOKEN` environment variable. Fullsend-managed Jira API calls,
-including polling, issue commands, run-status updates, and reconciliation, use
-Bearer authentication through `api_url`:
+The current Basic-auth requirement is legacy behavior. The target path uses a
+scoped API token from the `FULLSEND_JIRA_TOKEN` environment variable. No email
+is required or passed. Fullsend-managed Jira API calls, including polling,
+issue commands, run-status updates, and reconciliation, use Bearer
+authentication through `api_url`. Atlassian documents this
+[scoped-token flow](https://support.atlassian.com/user-management/docs/manage-api-tokens-for-service-accounts/):
 
 ```text
 {api_url}/ex/jira/{cloudId}/rest/api/3/{resource}
@@ -97,10 +94,9 @@ that request it. The built-in agent credential provider must be updated to
 support the same scoped-token flow without exposing the token to the model, and
 its egress profile must allow `api.atlassian.com`.
 
-Keeping direct API requests on `base_url` is a separate Basic-auth path. That
-path requires an email with a classic API token and does not meet the token-only
-goal. A configured `api_url` override must be compatible with the token's auth
-mode and the gateway path format.
+Direct agent scripts can use the same token and gateway URL. Alternatively,
+they can call `fullsend issues` and let Fullsend load connection settings from
+config. In either case, `api_url` must be a compatible API gateway base URL.
 
 ## Poll query composition
 
@@ -123,9 +119,9 @@ remaining command-line inputs are operational values such as `--target-repo`,
 
 | Option | Benefits | Costs |
 |---|---|---|
-| Use one scoped-token and API-gateway path for Fullsend clients and agent scripts | One secret, no email setting, consistent URL and auth behavior across the poller, issue commands, status updates, and scripts | Requires Cloud ID lookup, client changes, agent-provider and egress updates, and migration guidance |
-| Keep Basic auth against the site URL for agent scripts | Matches current direct `curl` examples and avoids gateway URL construction in those scripts | Requires email plus a classic token and leaves multiple auth/configuration paths |
-| Split auth by caller, using scoped tokens for polling and Basic auth for commands or scripts | Allows staged migration | Requires separate credentials or token types and keeps email required for some callers |
+| Let all Fullsend Jira clients and agent scripts call the API gateway with the scoped token | One credential and URL model across polling, issue commands, status updates, reconciliation, and scripts | Requires Cloud ID lookup, client changes, agent-provider and egress updates, and migration guidance |
+| Route agent scripts through `fullsend issues` where its command surface is sufficient | Keeps config and API details inside Fullsend; scripts do not construct Jira URLs | Custom scripts cannot use Jira endpoints that `fullsend issues` does not expose |
+| Configure `cloud_id` explicitly instead of discovering it from `base_url` | Avoids a tenant-info lookup at runtime and simplifies script URL construction | Adds another repository setting to maintain and validate |
 
 The working direction from this discussion is the first option. This remains a
 design proposal; implementation details and compatibility behavior should be
@@ -201,8 +197,6 @@ where it depends on the config contract.
   explicit poll command fail or succeed as a no-op when polling is disabled?
 - What query runs when `poll.query` is omitted? The current poller defaults to
   non-done issues ordered by most recent update.
-- Should Fullsend accept a legacy classic API token during a migration period,
-  or require scoped tokens for the new connection model?
 - How should the same `FULLSEND_JIRA_TOKEN` secret reach a selected host-side
   script while the current runner-secret contract reserves the `FULLSEND_`
   namespace?
