@@ -231,11 +231,19 @@ where it depends on the config contract.
 
 ## Open questions
 
-- How should the same `FULLSEND_JIRA_TOKEN` secret reach a selected host-side
-  script while the current runner-secret contract reserves the `FULLSEND_`
-  namespace?
 - How should a non-default `api_url` override affect the gateway path and
   Cloud ID discovery?
+
+## Secret delivery requirement
+
+- Keep the repository secret named `FULLSEND_JIRA_TOKEN`.
+- Fullsend-managed workflows may pass that token only to host-side scripts
+  explicitly configured to need Jira access. Since the runner-secret contract
+  reserves the `FULLSEND_` namespace, expose the token to a selected script
+  under a non-reserved environment name, such as `JIRA_API_TOKEN`, rather than
+  through the generic runner-secret bundle.
+- Do not make the token available by default to other scripts or to the
+  sandboxed model.
 
 ## References
 
