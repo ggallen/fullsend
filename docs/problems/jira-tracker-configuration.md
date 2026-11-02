@@ -59,7 +59,14 @@ controlled by `poll.enabled`; `poll.query` supplies the JQL filter. When
 `poll.enabled` is `true`, `fullsend repos install` installs the Jira polling
 pieces. When it is `false`, `repos install` removes the Jira polling pieces it
 manages. If `poll` or `poll.enabled` is missing from the effective config, the
-poll workflow is not installed.
+poll workflow is not installed. If `poll.query` is omitted, polling uses the
+current default filter, `statusCategory != Done ORDER BY updated DESC`, scoped
+to the configured project.
+
+On the first Jira-enabled `fullsend repos install`, provide the Jira token on
+the command line with `--jira-token`. Install stores it as the repo secret
+`FULLSEND_JIRA_TOKEN`; later runs reuse that secret when the flag is omitted.
+The token is not written to either config file or printed in command output.
 
 GitHub and GitLab keep their current scalar form (`tracker: github` and
 `tracker: gitlab`). Credentials stay out of `config.yaml` and `repos.yaml`.
@@ -158,6 +165,8 @@ where it depends on the config contract.
 - Define `poll.enabled: true` to install the Jira poller through
   `fullsend repos install`, `false` to remove its managed pieces, and a
   missing `poll` or `poll.enabled` value to leave the poll workflow uninstalled.
+- When `poll.query` is omitted, use the existing filter:
+  `statusCategory != Done ORDER BY updated DESC`.
 - Support the structure under `.fullsend/config.yaml` and `repos.yaml` managed
   config, with defined field-wise inheritance for Jira settings.
 - Keep tokens and emails out of configuration.
@@ -169,6 +178,10 @@ where it depends on the config contract.
 - Remove the Jira poller pieces managed by Fullsend when it is `false`.
 - Leave the poll workflow uninstalled when `poll` or `poll.enabled` is absent
   from the effective config.
+- Require `--jira-token` on the first enabled install when the repo's
+  `FULLSEND_JIRA_TOKEN` secret is absent; write it as that repo secret and
+  reuse it on later installs when the flag is omitted.
+- Never persist the token to config or print it.
 - Keep the operation idempotent and leave unrelated repository files alone.
 - Link this issue to #8906 and #9035; the schema issue defines the setting this
   behavior consumes.
@@ -218,8 +231,6 @@ where it depends on the config contract.
 
 ## Open questions
 
-- What query runs when `poll.query` is omitted? The current poller defaults to
-  non-done issues ordered by most recent update.
 - How should the same `FULLSEND_JIRA_TOKEN` secret reach a selected host-side
   script while the current runner-secret contract reserves the `FULLSEND_`
   namespace?
