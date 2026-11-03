@@ -16,6 +16,9 @@ Tracker-routed status updates are specified by
 - `config.yaml` accepts `tracker` only as a string. It can select a default
   tracker for `fullsend issues`, but it cannot hold Jira connection or poll
   settings.
+- Cross-repository issue policy currently lives in top-level
+  `create_issues.allow_targets`, with GitHub organization/repository entries
+  and GitLab repository entries.
 - `fullsend poll --input-driver jira-poll` accepts Jira URL, project, and JQL
   through flags, with URL and repository fallbacks from environment variables.
   The Jira client currently uses Basic authentication and requires
@@ -33,9 +36,9 @@ Tracker-routed status updates are specified by
 ## Proposed configuration shape
 
 The new `tracking` key will use provider-specific mappings for GitHub, GitLab,
-and Jira. The existing `create_issues` settings will move inside the selected
-provider mapping, so tracker settings and issue-target policy live together.
-Two prep issues below cover migration and updating the references before the
+and Jira. Each provider mapping will own its `allowed_targets` list. GitHub and
+GitLab list repositories; Jira lists projects. Two prep issues below cover
+migrating the existing configuration and replacing `create_issues` before the
 Jira implementation work.
 
 ```yaml
@@ -45,6 +48,8 @@ tracking:
     # Optional; defaults to https://api.atlassian.com
     api_url: https://api.atlassian.com
     project: PROJ
+    allowed_targets:
+      - PROJ
     poll:
       enabled: true
       query: 'labels = "fullsend" AND statusCategory != Done ORDER BY updated DESC'
@@ -52,22 +57,22 @@ tracking:
 
 Exactly one provider key (`github`, `gitlab`, or `jira`) selects the repository's
 tracker. GitHub and GitLab can initially use empty mappings; Jira has
-provider-specific settings. The selected provider's `create_issues` settings
-are nested in that mapping, for example `tracking.jira.create_issues`. The prep
-work moves existing settings there while preserving their current behavior and
-layering.
+provider-specific settings. The selected provider's `allowed_targets` list is
+nested in that mapping. GitHub entries identify `owner/repo`; GitLab entries
+identify full project paths; Jira entries identify project keys.
 
 `base_url` and `project` are required for the Jira mapping. `api_url` is
 optional and defaults to Atlassian's API gateway. `project` identifies the
-repository's only Jira project; polling and Jira issue commands use that
-project. It is not a fallback or a per-command project override. Polling is
-controlled by `poll.enabled`; `poll.query` supplies the JQL filter. When
-`poll.enabled` is `true`, `fullsend repos install` installs the Jira polling
-pieces. When it is `false`, `repos install` removes the Jira polling pieces it
-manages. If `poll` or `poll.enabled` is missing from the effective config, the
-poll workflow is not installed. If `poll.query` is omitted, polling uses the
-current default filter, `statusCategory != Done ORDER BY updated DESC`, scoped
-to the configured project.
+repository's primary Jira project and is used for polling and authorization.
+`allowed_targets` is a list of Jira project keys where agents may create or
+move issues. Polling is controlled by `poll.enabled`; `poll.query` supplies
+the JQL filter. When `poll.enabled` is `true`, `fullsend repos install`
+installs the Jira polling pieces. When it is `false`, `repos install` removes
+the Jira polling pieces it manages. If `poll` or `poll.enabled` is missing
+from the effective config, the poll workflow is not installed. If `poll.query`
+is omitted, polling uses the current default filter,
+`statusCategory != Done ORDER BY updated DESC`, scoped to the configured
+project.
 
 On the first Jira-enabled `fullsend repos install`, provide the Jira token on
 the command line with `--jira-token`. Install stores it as the repo secret
@@ -84,17 +89,16 @@ an existing installation back to service-account auth. The email is never
 written to either config file or printed in command output.
 
 GitHub and GitLab will move from scalar values to provider-specific mappings
-under `tracking`. Their issue-target settings will live at
-`tracking.github.create_issues` or `tracking.gitlab.create_issues`; Jira's will
-live at `tracking.jira.create_issues`. Credentials stay out of `config.yaml`
-and `repos.yaml`; Jira authentication uses runtime repo secrets instead.
+under `tracking`. Their `allowed_targets` lists will contain repositories;
+`tracking.jira.allowed_targets` will contain Jira project keys. Credentials
+stay out of `config.yaml` and `repos.yaml`; Jira authentication uses runtime
+repo secrets instead.
 
 When this mapping is used in `repos.yaml`, it belongs under the existing
 managed `config` key. Layered configuration should allow an installation-level
 Jira site and API URL to be combined with a repository-level project and poll
 query. A child provider selection replaces the inherited provider selection;
-the selected provider's `create_issues` retains its existing replace-if-set
-behavior.
+the selected provider's `allowed_targets` retains replace-if-set behavior.
 
 ## Authentication and URL roles
 
@@ -230,28 +234,32 @@ reference #9035 where they depend on the config contract.
 - Preserve the selected GitHub or GitLab tracker and existing settings when
   migrating. For Jira configuration, preserve the Jira values while moving
   them to `tracking.jira`.
-- Migrate existing `create_issues` config to
-  `tracking.<tracker>.create_issues` for the repository's selected tracker.
+- Migrate existing `create_issues.allow_targets.repos` entries to the selected
+  provider's `allowed_targets` repository list. Do not silently discard or
+  partially expand legacy GitHub org grants; follow the migration policy in
+  Open Questions and give operators actionable instructions if input is
+  required.
+- Store Jira target project keys in `tracking.jira.allowed_targets`.
 - Treat the updated `repos.yaml` managed `config` as the desired input, then
   have `repos install` migrate or regenerate each repository's managed
   `.fullsend/config.yaml` with the new `tracking` structure.
-- Preserve current effective behavior and the selected tracker's
-  `create_issues.allow_targets` policy; leave unrelated user config alone and
-  make the migration repeatable. Resolve the destination from the effective
-  tracker, falling back to the repository's forge provider when no tracker is
-  explicit, so repositories without a tracker setting retain their policy.
+- Preserve current effective behavior and target policy; leave unrelated user
+  config alone and make the migration repeatable. Resolve the destination from
+  the effective tracker, falling back to the repository's forge provider when
+  no tracker is explicit, so repositories without a tracker setting retain
+  their policy.
 - Complete this prep work before #9035 and the Jira-specific follow-up work.
 
-### Proposed prep: move all `create_issues` references under each tracking provider
+### Proposed prep: replace `create_issues` with provider-specific `allowed_targets`
 
-- Move the config field to `tracking.<tracker>.create_issues` and update config
-  parsing, validation, layering, effective-config output, managed-config
-  writeback, and safety checks to use the provider-specific path.
-- Update every code, workflow, agent, example, and documentation reference to
-  `create_issues` so configuration paths use
-  `tracking.github.create_issues`, `tracking.gitlab.create_issues`, or
-  `tracking.jira.create_issues` as appropriate.
-- Preserve existing `allow_targets` behavior and defaults during the move.
+- Remove the top-level `create_issues` config block and use
+  `tracking.<tracker>.allowed_targets` instead.
+- Update config parsing, validation, layering, effective-config output,
+  managed-config writeback, safety checks, agents, workflows, examples, and
+  documentation to use the provider-specific `allowed_targets` field.
+- Validate GitHub and GitLab entries as repositories and Jira entries as
+  project keys.
+- Preserve existing access policy and defaults during the migration.
 - Complete this prep work before #9035 and the Jira-specific follow-up work.
 
 ### Existing: #9035 — define the Jira tracker configuration
@@ -261,11 +269,12 @@ reference #9035 where they depend on the config contract.
 - Add `tracking.jira` fields for required `base_url` and `project`, optional
   `api_url` with the `https://api.atlassian.com` default, and `poll.enabled` /
   `poll.query`.
+- Add `tracking.jira.allowed_targets` as a list of Jira project keys that may
+  be issue-creation or move destinations.
 - Represent GitHub and GitLab as provider keys under `tracking`, replacing the
   current scalar `tracker` value.
-- Place Jira's `create_issues` settings inside `tracking.jira`.
-- Treat `project` as the sole Jira project for the repository, used by polling
-  and Jira issue commands.
+- Treat `project` as the repository's primary Jira project, used by polling
+  and authorization; `allowed_targets` governs permitted Jira project targets.
 - Define `poll.enabled: true` to install the Jira poller through
   `fullsend repos install`, `false` to remove its managed pieces, and a
   missing `poll` or `poll.enabled` value to leave the poll workflow uninstalled.
@@ -322,9 +331,9 @@ reference #9035 where they depend on the config contract.
 
 - Use the shared config and scoped-token client for `fullsend issues get`,
   `create`, `post-comment`, and `link`.
-- Use the required `tracking.jira.project` as the only Jira project for the
-  repository's Jira issue commands; do not treat it as a fallback or expose a
-  per-command Jira project override.
+- Use `tracking.jira.project` as the repository's primary Jira project for
+  polling and authorization. For cross-project create or move operations,
+  allow only the project keys listed in `tracking.jira.allowed_targets`.
 - Migrate `fullsend run` Jira status updates and `reconcile-status` to config
   plus `FULLSEND_JIRA_TOKEN` and the optional `FULLSEND_JIRA_EMAIL` auth-mode
   selector.
@@ -361,6 +370,10 @@ reference #9035 where they depend on the config contract.
 
 ## Open questions
 
+- How should `repos install` migrate legacy GitHub `allow_targets.orgs` grants
+  to the new explicit repository list? Expanding to currently discoverable
+  repositories changes the old grant's behavior for future repositories; an
+  operator-confirmed conversion may be needed to preserve intent.
 - Should the initial Jira implementation support both service-account and
   bot-user tokens, or ship service-account support first and add bot-user
   support only if needed? The proposed contract defaults to service-account
