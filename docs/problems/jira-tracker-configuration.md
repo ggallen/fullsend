@@ -217,143 +217,81 @@ for authenticated REST calls.
 This remains a design proposal; implementation details and compatibility
 behavior should be settled in the linked issues before code changes land.
 
-## Proposed issue breakdown
+## Issue breakdown
 
-The Jira work belongs under umbrella issue
-[#8906](https://github.com/fullsend-ai/fullsend/issues/8906). Existing child
-[#9035](https://github.com/fullsend-ai/fullsend/issues/9035) defines Jira
-configuration, but needs to be updated to use the new `tracking` schema. The
-two proposed prep issues below should be completed first. They are not filed;
-the follow-up proposals are also unfiled. New issues should link to #8906 and
-reference #9035 where they depend on the config contract.
+All work is tracked under parent issue
+[#8906](https://github.com/fullsend-ai/fullsend/issues/8906). Its eight
+subissues are filed and linked in GitHub. The parent records the implementation
+order and parallel work lanes; blocker relationships are set on the issues.
 
-### Proposed prep: migrate managed repository config to `tracking` via `repos install`
+### Prep: [#9074](https://github.com/fullsend-ai/fullsend/issues/9074)
 
-- Update `fullsend repos install` to migrate existing managed config from the
-  scalar `tracker` key to the provider-key structure under `tracking`.
-- Preserve the selected GitHub or GitLab tracker and existing settings when
-  migrating. For Jira configuration, preserve the Jira values while moving
-  them to `tracking.jira`.
-- Migrate existing `create_issues.allow_targets.repos` entries to the selected
-  provider's `allowed_targets` repository list. Do not silently discard or
-  partially expand legacy GitHub org grants; follow the migration policy in
-  Open Questions and give operators actionable instructions if input is
-  required.
-- Store Jira target project keys in `tracking.jira.allowed_targets`.
-- Treat the updated `repos.yaml` managed `config` as the desired input, then
-  have `repos install` migrate or regenerate each repository's managed
-  `.fullsend/config.yaml` with the new `tracking` structure.
-- Preserve current effective behavior and target policy; leave unrelated user
-  config alone and make the migration repeatable. Resolve the destination from
-  the effective tracker, falling back to the repository's forge provider when
-  no tracker is explicit, so repositories without a tracker setting retain
-  their policy.
-- Complete this prep work before #9035 and the Jira-specific follow-up work.
-
-### Proposed prep: replace `create_issues` with provider-specific `allowed_targets`
-
-- Remove the top-level `create_issues` config block and use
-  `tracking.<tracker>.allowed_targets` instead.
+- Replace the top-level `create_issues` config block with
+  `tracking.<tracker>.allowed_targets`.
 - Update config parsing, validation, layering, effective-config output,
-  managed-config writeback, safety checks, agents, workflows, examples, and
-  documentation to use the provider-specific `allowed_targets` field.
-- Validate GitHub and GitLab entries as repositories and Jira entries as
-  project keys.
-- Preserve existing access policy and defaults during the migration.
-- Complete this prep work before #9035 and the Jira-specific follow-up work.
+  managed-config writeback, safety checks, agent/workflow consumers, examples,
+  and documentation.
+- Use repository paths for GitHub/GitLab and project keys for Jira; preserve
+  existing defaults and same-repository behavior.
 
-### Existing: #9035 — define the Jira tracker configuration
+### Prep: [#9075](https://github.com/fullsend-ai/fullsend/issues/9075)
 
-- Amend the issue to define `tracking.jira` within the new `tracking` schema,
-  after the prep issues above.
-- Add `tracking.jira` fields for required `base_url` and `project`, optional
-  `api_url` with the `https://api.atlassian.com` default, and `poll.enabled` /
-  `poll.query`.
-- Add `tracking.jira.allowed_targets` as a list of Jira project keys that may
-  be issue-creation or move destinations.
-- Represent GitHub and GitLab as provider keys under `tracking`, replacing the
-  current scalar `tracker` value.
-- Treat `project` as the repository's primary Jira project, used by polling
-  and authorization; `allowed_targets` governs permitted Jira project targets.
-- Define `poll.enabled: true` to install the Jira poller through
-  `fullsend repos install`, `false` to remove its managed pieces, and a
-  missing `poll` or `poll.enabled` value to leave the poll workflow uninstalled.
-- When `poll.query` is omitted, use the existing filter:
-  `statusCategory != Done ORDER BY updated DESC`.
-- Support the structure under `.fullsend/config.yaml` and `repos.yaml` managed
-  config, with defined field-wise inheritance for Jira settings.
-- Keep tokens and emails out of configuration.
+- Migrate the scalar `tracker` and legacy target configuration to the selected
+  provider mapping under `tracking` when `repos install` converges managed
+  `.fullsend/config.yaml` files.
+- Preserve effective tracker and target policy, and leave unrelated user
+  configuration alone.
+- The issue records the handling for legacy GitHub organization-wide grants.
+- Blocked by #9074; complete before #9035.
 
-### Proposed: install or remove Jira polling pieces from repo config
+### Jira config: [#9035](https://github.com/fullsend-ai/fullsend/issues/9035)
 
-- Have `fullsend repos install` install the Jira poller workflow and its
-  required support files when `tracking.jira.poll.enabled` is `true`.
-- Remove the Jira poller pieces managed by Fullsend when it is `false`.
-- Leave the poll workflow uninstalled when `poll` or `poll.enabled` is absent
-  from the effective config.
-- Require `--jira-token` on the first enabled install when the repo's
-  `FULLSEND_JIRA_TOKEN` secret is absent; write it as that repo secret.
-- Replace the stored token when `--jira-token` is supplied on a later install,
-  so an operator can rotate an expiring token; reuse the stored token when the
-  flag is omitted.
-- Store `FULLSEND_JIRA_EMAIL` as a repo secret when `--jira-email` is supplied;
-  reuse it when the flag is omitted and remove it to switch to service-account
-  auth.
-- Never persist the token to config or print it.
-- Keep the operation idempotent and leave unrelated repository files alone.
-- Link this issue to #8906 and #9035; the schema issue defines the setting this
-  behavior consumes.
+- Define required `base_url` and `project`, optional `api_url` defaulting to
+  `https://api.atlassian.com`, `allowed_targets` project keys, and poll settings.
+- Keep the configured project as the repository's primary project for polling
+  and authorization; restrict cross-project create/move destinations to
+  `allowed_targets`.
+- Preserve the required JQL grouping:
+  `project = PROJ AND (query) ORDER BY ...`.
+- Blocked by #9075.
 
-### Proposed: support scoped Jira tokens in the shared Jira client
+### Shared Jira auth/client: [#9007](https://github.com/fullsend-ai/fullsend/issues/9007)
 
-- Add API-gateway URL construction using `api_url` and the Jira Cloud ID.
-- Resolve and cache Cloud ID from the configured `base_url` tenant-info
-  endpoint.
+- Discover Cloud ID from `base_url`; use `api_url` for gateway REST requests and
+  keep `base_url` for browse links.
 - Use Bearer auth with `FULLSEND_JIRA_TOKEN` when `FULLSEND_JIRA_EMAIL` is
-  absent. When it exists, use Basic auth with the email and scoped token. Both
-  modes use the scoped API gateway URL.
-- Preserve `base_url` for browse links and validate both configured URLs.
-- Cover the error paths for Cloud ID lookup, invalid URLs, and API failures.
+  absent; use Basic auth with the email and scoped user token when present.
+- This existing issue is now a subissue of #8906 and is blocked by #9035.
 
-### Proposed: configure Jira polling from tracking config
+### Poll workflow and secrets: [#9076](https://github.com/fullsend-ai/fullsend/issues/9076)
 
-- Load `tracking.jira` settings instead of Jira URL, project, and JQL flags or
-  environment fallbacks.
-- Read `FULLSEND_JIRA_TOKEN` from the runtime environment. When
-  `FULLSEND_JIRA_EMAIL` exists, use Basic authentication with the bot-user
-  token; otherwise use Bearer authentication with a service-account token.
-- Honor `poll.enabled` and use the configured project and query.
-- Always compose `project = PROJ AND (query)` and leave a final `ORDER BY`
-  clause outside the parentheses.
-- Keep operational poll arguments such as target repository and output path.
+- Install or remove managed polling files based on `tracking.jira.poll.enabled`;
+  leave them uninstalled when the setting is absent.
+- Require and store `FULLSEND_JIRA_TOKEN` on first Jira install; support token
+  replacement and optional `FULLSEND_JIRA_EMAIL` storage.
+- Blocked by #9035; can proceed in parallel with #9007.
 
-### Proposed: migrate `fullsend issues` and run-status Jira clients
+### Poll command: [#9077](https://github.com/fullsend-ai/fullsend/issues/9077)
 
-- Use the shared config and scoped-token client for `fullsend issues get`,
-  `create`, `post-comment`, and `link`.
-- Use `tracking.jira.project` as the repository's primary Jira project for
-  polling and authorization. For cross-project create or move operations,
-  allow only the project keys listed in `tracking.jira.allowed_targets`.
-- Migrate `fullsend run` Jira status updates and `reconcile-status` to config
-  plus `FULLSEND_JIRA_TOKEN` and the optional `FULLSEND_JIRA_EMAIL` auth-mode
-  selector.
-- Remove or deprecate legacy Jira email/URL flags and environment names.
-- Keep `--jira-email` as an optional `fullsend repos install` input for setting
-  the `FULLSEND_JIRA_EMAIL` repo secret.
+- Read site, API URL, project, enabled state, and JQL from `tracking.jira`;
+  require the runtime token and use the optional email auth selector.
+- Compose `project = PROJ AND (query)` and keep `ORDER BY` after the closing
+  parenthesis.
+- Blocked by #9035 and #9007.
 
-### Proposed: migrate agent Jira access and secret delivery
+### Issue/status clients: [#9078](https://github.com/fullsend-ai/fullsend/issues/9078)
 
-- Update the built-in `atlassian-cloud` credential provider for the selected
-  Jira auth mode and add `api.atlassian.com` to its network profile.
-- Update reusable workflow secret declarations and token threading.
-- Pass `FULLSEND_JIRA_EMAIL` to Jira workflows only when the repo secret exists.
-- Pass the email to all agent pre/post scripts only when the secret exists.
-- Update direct script examples to use the selected gateway auth mode, or show
-  `fullsend issues` as the config-aware option.
-- Update the Jira integration, issue-command, custom-poller, BYO-agent,
-  harness-reference, operations, and config-reference documentation.
-- Preserve explicit secret selection so a Jira token is not inherited by every
-  host-side script or exposed to the sandboxed model.
+- Migrate `fullsend issues`, Jira run-status updates, and `reconcile-status` to
+  the shared client and configured project.
+- Blocked by #9035 and #9007.
+
+### Agent access: [#9079](https://github.com/fullsend-ai/fullsend/issues/9079)
+
+- Pass Jira secrets only to host-side workflows and scripts that need them;
+  pass `FULLSEND_JIRA_EMAIL` only when it exists.
+- Update the built-in Jira credential provider, workflow secret threading,
+  egress, direct-script examples, and related documentation.
+- Blocked by #9007 and #9076; may proceed alongside #9077 and #9078.
 
 ## Secret delivery requirement
 
@@ -374,11 +312,6 @@ reference #9035 where they depend on the config contract.
   to the new explicit repository list? Expanding to currently discoverable
   repositories changes the old grant's behavior for future repositories; an
   operator-confirmed conversion may be needed to preserve intent.
-- Should the initial Jira implementation support both service-account and
-  bot-user tokens, or ship service-account support first and add bot-user
-  support only if needed? The proposed contract defaults to service-account
-  Bearer auth; when bot-user support is enabled, the optional
-  `FULLSEND_JIRA_EMAIL` secret selects Basic auth.
 
 ## References
 
