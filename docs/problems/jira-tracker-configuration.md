@@ -32,15 +32,14 @@ Tracker-routed status updates are specified by
 
 ## Proposed configuration shape
 
-GitHub and GitLab remain scalar tracker values. Jira uses a mapping containing
-its connection and poll settings:
+The new `tracking` key will use provider-specific mappings for GitHub, GitLab,
+and Jira. The existing `create_issues` settings will also move under
+`tracking`, so the tracker selection and issue-target policy live together.
+Two prep issues below cover migration and updating the references before the
+Jira implementation work.
 
 ```yaml
-tracker: github
-```
-
-```yaml
-tracker:
+tracking:
   jira:
     base_url: https://example.atlassian.net
     # Optional; defaults to https://api.atlassian.com
@@ -50,6 +49,12 @@ tracker:
       enabled: true
       query: 'labels = "fullsend" AND statusCategory != Done ORDER BY updated DESC'
 ```
+
+Exactly one provider key (`github`, `gitlab`, or `jira`) selects the repository's
+tracker. GitHub and GitLab can initially use empty mappings; Jira has
+provider-specific settings. `tracking.create_issues` is a sibling of the
+provider key; the prep work moves the existing settings there while preserving
+their current behavior and layering.
 
 `base_url` and `project` are required for the Jira mapping. `api_url` is
 optional and defaults to Atlassian's API gateway. `project` identifies the
@@ -77,14 +82,16 @@ uses the service-account authentication path. Remove the repo secret to switch
 an existing installation back to service-account auth. The email is never
 written to either config file or printed in command output.
 
-GitHub and GitLab keep their current scalar form (`tracker: github` and
-`tracker: gitlab`). Credentials stay out of `config.yaml` and `repos.yaml`.
-Jira authentication uses runtime repo secrets rather than config fields.
+GitHub and GitLab will move from scalar values to provider-specific mappings
+under `tracking`. The `tracking.create_issues` allowlist will continue to
+control where agents may create issues. Credentials stay out of `config.yaml`
+and `repos.yaml`; Jira authentication uses runtime repo secrets instead.
 
 When this mapping is used in `repos.yaml`, it belongs under the existing
 managed `config` key. Layered configuration should allow an installation-level
 Jira site and API URL to be combined with a repository-level project and poll
-query. A child scalar tracker selection replaces the inherited Jira mapping.
+query. A child provider selection replaces the inherited provider selection;
+`tracking.create_issues` retains its existing replace-if-set behavior.
 
 ## Authentication and URL roles
 
@@ -207,17 +214,49 @@ behavior should be settled in the linked issues before code changes land.
 
 The Jira work belongs under umbrella issue
 [#8906](https://github.com/fullsend-ai/fullsend/issues/8906). Existing child
-[#9035](https://github.com/fullsend-ai/fullsend/issues/9035) is the config
-structure issue and remains part of the work. The following are proposed
-follow-up issues, not yet filed; each should link to #8906 and reference #9035
-where it depends on the config contract.
+[#9035](https://github.com/fullsend-ai/fullsend/issues/9035) defines Jira
+configuration, but needs to be updated to use the new `tracking` schema. The
+two proposed prep issues below should be completed first. They are not filed;
+the follow-up proposals are also unfiled. New issues should link to #8906 and
+reference #9035 where they depend on the config contract.
+
+### Proposed prep: migrate managed repository config to `tracking` via `repos install`
+
+- Update `fullsend repos install` to migrate existing managed config from the
+  scalar `tracker` key to the provider-key structure under `tracking`.
+- Preserve the selected GitHub or GitLab tracker and existing settings when
+  migrating. For Jira configuration, preserve the Jira values while moving
+  them to `tracking.jira`.
+- Migrate existing `create_issues` config to `tracking.create_issues` as part
+  of the same schema transition.
+- Treat the updated `repos.yaml` managed `config` as the desired input, then
+  have `repos install` migrate or regenerate each repository's managed
+  `.fullsend/config.yaml` with the new `tracking` structure.
+- Preserve current effective behavior and the
+  `tracking.create_issues.allow_targets` policy; leave unrelated user config
+  alone and make the migration repeatable.
+- Complete this prep work before #9035 and the Jira-specific follow-up work.
+
+### Proposed prep: move all `create_issues` references under `tracking`
+
+- Move the config field to `tracking.create_issues` and update config parsing,
+  validation, layering, effective-config output, managed-config writeback, and
+  safety checks to use the new path.
+- Update every code, workflow, agent, example, and documentation reference to
+  `create_issues` so configuration paths use `tracking.create_issues`.
+- Preserve existing `allow_targets` behavior and defaults during the move.
+- Complete this prep work before #9035 and the Jira-specific follow-up work.
 
 ### Existing: #9035 — define the Jira tracker configuration
 
-- Preserve scalar `tracker: github` and `tracker: gitlab`.
-- Add `tracker.jira` fields for required `base_url` and `project`, optional
+- Amend the issue to define `tracking.jira` within the new `tracking` schema,
+  after the prep issues above.
+- Add `tracking.jira` fields for required `base_url` and `project`, optional
   `api_url` with the `https://api.atlassian.com` default, and `poll.enabled` /
   `poll.query`.
+- Represent GitHub and GitLab as provider keys under `tracking`, replacing the
+  current scalar `tracker` value.
+- Place `create_issues` alongside the provider key under `tracking`.
 - Treat `project` as the sole Jira project for the repository, used by polling
   and Jira issue commands.
 - Define `poll.enabled: true` to install the Jira poller through
@@ -232,7 +271,7 @@ where it depends on the config contract.
 ### Proposed: install or remove Jira polling pieces from repo config
 
 - Have `fullsend repos install` install the Jira poller workflow and its
-  required support files when `tracker.jira.poll.enabled` is `true`.
+  required support files when `tracking.jira.poll.enabled` is `true`.
 - Remove the Jira poller pieces managed by Fullsend when it is `false`.
 - Leave the poll workflow uninstalled when `poll` or `poll.enabled` is absent
   from the effective config.
@@ -260,9 +299,9 @@ where it depends on the config contract.
 - Preserve `base_url` for browse links and validate both configured URLs.
 - Cover the error paths for Cloud ID lookup, invalid URLs, and API failures.
 
-### Proposed: configure Jira polling from tracker config
+### Proposed: configure Jira polling from tracking config
 
-- Load `tracker.jira` settings instead of Jira URL, project, and JQL flags or
+- Load `tracking.jira` settings instead of Jira URL, project, and JQL flags or
   environment fallbacks.
 - Read `FULLSEND_JIRA_TOKEN` from the runtime environment. When
   `FULLSEND_JIRA_EMAIL` exists, use Basic authentication with the bot-user
@@ -276,7 +315,7 @@ where it depends on the config contract.
 
 - Use the shared config and scoped-token client for `fullsend issues get`,
   `create`, `post-comment`, and `link`.
-- Use the required `tracker.jira.project` as the only Jira project for the
+- Use the required `tracking.jira.project` as the only Jira project for the
   repository's Jira issue commands; do not treat it as a fallback or expose a
   per-command Jira project override.
 - Migrate `fullsend run` Jira status updates and `reconcile-status` to config
@@ -312,6 +351,14 @@ where it depends on the config contract.
   as `JIRA_API_TOKEN` and `JIRA_EMAIL`; do not use the generic runner-secret
   bundle for `FULLSEND_` names.
 - Do not expose either credential to the sandboxed model.
+
+## Open questions
+
+- Should the initial Jira implementation support both service-account and
+  bot-user tokens, or ship service-account support first and add bot-user
+  support only if needed? The proposed contract defaults to service-account
+  Bearer auth; when bot-user support is enabled, the optional
+  `FULLSEND_JIRA_EMAIL` secret selects Basic auth.
 
 ## References
 
