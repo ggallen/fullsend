@@ -36,10 +36,11 @@ Tracker-routed status updates are specified by
 ## Proposed configuration shape
 
 The new `tracking` key will use provider-specific mappings for GitHub, GitLab,
-and Jira. Each provider mapping will own its `allowed_targets` list. GitHub and
-GitLab list repositories; Jira lists projects. Two prep issues below cover
-migrating the existing configuration and replacing `create_issues` before the
-Jira implementation work.
+and Jira. Each provider mapping has an `allowed_targets` mapping with fields
+appropriate to that provider: GitHub supports organizations and repositories,
+GitLab supports groups and repositories, and Jira supports projects. Two prep
+issues below cover migrating the existing configuration and replacing
+`create_issues` before the Jira implementation work.
 
 ```yaml
 tracking:
@@ -49,7 +50,8 @@ tracking:
     api_url: https://api.atlassian.com
     project: PROJ
     allowed_targets:
-      - PROJ
+      projects:
+        - PROJ
     poll:
       enabled: true
       query: 'labels = "fullsend" AND statusCategory != Done ORDER BY updated DESC'
@@ -57,16 +59,35 @@ tracking:
 
 Exactly one provider key (`github`, `gitlab`, or `jira`) selects the repository's
 tracker. GitHub and GitLab can initially use empty mappings; Jira has
-provider-specific settings. The selected provider's `allowed_targets` list is
-nested in that mapping. GitHub entries identify `owner/repo`; GitLab entries
-identify full project paths; Jira entries identify project keys.
+provider-specific settings. The selected provider's `allowed_targets` mapping
+is nested in that block. GitHub uses `orgs` and `repos`; GitLab uses `groups`
+and `repos`; Jira uses `projects`. Repository values use GitHub `owner/repo`
+or GitLab full project paths, while Jira values are project keys.
+
+For example, GitHub and GitLab can grant access at both the broader org/group
+level and to individual repositories. Jira has only project targets:
+
+```yaml
+tracking:
+  github:
+    allowed_targets:
+      orgs: [fullsend-ai]
+      repos: [another-org/special-repo]
+  gitlab:
+    allowed_targets:
+      groups: [fullsend/team]
+      repos: [fullsend/other/team-repo]
+  jira:
+    allowed_targets:
+      projects: [PROJ, OTHER]
+```
 
 `base_url` and `project` are required for the Jira mapping. `api_url` is
 optional and defaults to Atlassian's API gateway. `project` identifies the
 repository's primary Jira project and is used for polling and authorization.
-`allowed_targets` is a list of Jira project keys where agents may create or
-move issues. Polling is controlled by `poll.enabled`; `poll.query` supplies
-the JQL filter. When `poll.enabled` is `true`, `fullsend repos install`
+`allowed_targets.projects` is a list of Jira project keys where agents may
+create or move issues. Polling is controlled by `poll.enabled`; `poll.query`
+supplies the JQL filter. When `poll.enabled` is `true`, `fullsend repos install`
 installs the Jira polling pieces. When it is `false`, `repos install` removes
 the Jira polling pieces it manages. If `poll` or `poll.enabled` is missing
 from the effective config, the poll workflow is not installed. If `poll.query`
@@ -89,10 +110,10 @@ an existing installation back to service-account auth. The email is never
 written to either config file or printed in command output.
 
 GitHub and GitLab will move from scalar values to provider-specific mappings
-under `tracking`. Their `allowed_targets` lists will contain repositories;
-`tracking.jira.allowed_targets` will contain Jira project keys. Credentials
-stay out of `config.yaml` and `repos.yaml`; Jira authentication uses runtime
-repo secrets instead.
+under `tracking`. GitHub uses `tracking.github.allowed_targets.orgs` and
+`.repos`; GitLab uses `tracking.gitlab.allowed_targets.groups` and `.repos`;
+Jira uses `tracking.jira.allowed_targets.projects`. Credentials stay out of
+`config.yaml` and `repos.yaml`; Jira authentication uses runtime repo secrets.
 
 When this mapping is used in `repos.yaml`, it belongs under the existing
 managed `config` key. Layered configuration should allow an installation-level
@@ -228,11 +249,13 @@ order and parallel work lanes; blocker relationships are set on the issues.
 
 - Replace the top-level `create_issues` config block with
   `tracking.<tracker>.allowed_targets`.
+- Use `tracking.github.allowed_targets.orgs` and `.repos`,
+  `tracking.gitlab.allowed_targets.groups` and `.repos`, and
+  `tracking.jira.allowed_targets.projects`.
 - Update config parsing, validation, layering, effective-config output,
   managed-config writeback, safety checks, agent/workflow consumers, examples,
   and documentation.
-- Use repository paths for GitHub/GitLab and project keys for Jira; preserve
-  existing defaults and same-repository behavior.
+- Preserve existing defaults and same-repository behavior.
 
 ### Prep: [#9075](https://github.com/fullsend-ai/fullsend/issues/9075)
 
@@ -241,16 +264,21 @@ order and parallel work lanes; blocker relationships are set on the issues.
   `.fullsend/config.yaml` files.
 - Preserve effective tracker and target policy, and leave unrelated user
   configuration alone.
-- The issue records the handling for legacy GitHub organization-wide grants.
+- Preserve legacy GitHub organization grants as `github.allowed_targets.orgs`
+  and repository grants as `github.allowed_targets.repos`; migrate GitLab
+  repository grants to `gitlab.allowed_targets.repos`. GitLab groups can be
+  configured through `gitlab.allowed_targets.groups`. Jira project keys belong
+  in `jira.allowed_targets.projects`; do not infer Jira project keys from
+  repository paths.
 - Blocked by #9074; complete before #9035.
 
 ### Jira config: [#9035](https://github.com/fullsend-ai/fullsend/issues/9035)
 
 - Define required `base_url` and `project`, optional `api_url` defaulting to
-  `https://api.atlassian.com`, `allowed_targets` project keys, and poll settings.
+  `https://api.atlassian.com`, `allowed_targets.projects`, and poll settings.
 - Keep the configured project as the repository's primary project for polling
   and authorization; restrict cross-project create/move destinations to
-  `allowed_targets`.
+  `allowed_targets.projects`.
 - Preserve the required JQL grouping:
   `project = PROJ AND (query) ORDER BY ...`.
 - Blocked by #9075.
@@ -308,10 +336,9 @@ order and parallel work lanes; blocker relationships are set on the issues.
 
 ## Open questions
 
-- How should `repos install` migrate legacy GitHub `allow_targets.orgs` grants
-  to the new explicit repository list? Expanding to currently discoverable
-  repositories changes the old grant's behavior for future repositories; an
-  operator-confirmed conversion may be needed to preserve intent.
+None currently. GitHub organization grants remain organization grants under
+`tracking.github.allowed_targets.orgs`, so migration does not need to expand
+them into a snapshot of repositories.
 
 ## References
 
