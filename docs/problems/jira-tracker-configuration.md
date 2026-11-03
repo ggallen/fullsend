@@ -33,8 +33,8 @@ Tracker-routed status updates are specified by
 ## Proposed configuration shape
 
 The new `tracking` key will use provider-specific mappings for GitHub, GitLab,
-and Jira. The existing `create_issues` settings will also move under
-`tracking`, so the tracker selection and issue-target policy live together.
+and Jira. The existing `create_issues` settings will move inside the selected
+provider mapping, so tracker settings and issue-target policy live together.
 Two prep issues below cover migration and updating the references before the
 Jira implementation work.
 
@@ -52,9 +52,10 @@ tracking:
 
 Exactly one provider key (`github`, `gitlab`, or `jira`) selects the repository's
 tracker. GitHub and GitLab can initially use empty mappings; Jira has
-provider-specific settings. `tracking.create_issues` is a sibling of the
-provider key; the prep work moves the existing settings there while preserving
-their current behavior and layering.
+provider-specific settings. The selected provider's `create_issues` settings
+are nested in that mapping, for example `tracking.jira.create_issues`. The prep
+work moves existing settings there while preserving their current behavior and
+layering.
 
 `base_url` and `project` are required for the Jira mapping. `api_url` is
 optional and defaults to Atlassian's API gateway. `project` identifies the
@@ -83,15 +84,17 @@ an existing installation back to service-account auth. The email is never
 written to either config file or printed in command output.
 
 GitHub and GitLab will move from scalar values to provider-specific mappings
-under `tracking`. The `tracking.create_issues` allowlist will continue to
-control where agents may create issues. Credentials stay out of `config.yaml`
+under `tracking`. Their issue-target settings will live at
+`tracking.github.create_issues` or `tracking.gitlab.create_issues`; Jira's will
+live at `tracking.jira.create_issues`. Credentials stay out of `config.yaml`
 and `repos.yaml`; Jira authentication uses runtime repo secrets instead.
 
 When this mapping is used in `repos.yaml`, it belongs under the existing
 managed `config` key. Layered configuration should allow an installation-level
 Jira site and API URL to be combined with a repository-level project and poll
 query. A child provider selection replaces the inherited provider selection;
-`tracking.create_issues` retains its existing replace-if-set behavior.
+the selected provider's `create_issues` retains its existing replace-if-set
+behavior.
 
 ## Authentication and URL roles
 
@@ -227,23 +230,27 @@ reference #9035 where they depend on the config contract.
 - Preserve the selected GitHub or GitLab tracker and existing settings when
   migrating. For Jira configuration, preserve the Jira values while moving
   them to `tracking.jira`.
-- Migrate existing `create_issues` config to `tracking.create_issues` as part
-  of the same schema transition.
+- Migrate existing `create_issues` config to
+  `tracking.<tracker>.create_issues` for the repository's selected tracker.
 - Treat the updated `repos.yaml` managed `config` as the desired input, then
   have `repos install` migrate or regenerate each repository's managed
   `.fullsend/config.yaml` with the new `tracking` structure.
-- Preserve current effective behavior and the
-  `tracking.create_issues.allow_targets` policy; leave unrelated user config
-  alone and make the migration repeatable.
+- Preserve current effective behavior and the selected tracker's
+  `create_issues.allow_targets` policy; leave unrelated user config alone and
+  make the migration repeatable. Resolve the destination from the effective
+  tracker, falling back to the repository's forge provider when no tracker is
+  explicit, so repositories without a tracker setting retain their policy.
 - Complete this prep work before #9035 and the Jira-specific follow-up work.
 
-### Proposed prep: move all `create_issues` references under `tracking`
+### Proposed prep: move all `create_issues` references under each tracking provider
 
-- Move the config field to `tracking.create_issues` and update config parsing,
-  validation, layering, effective-config output, managed-config writeback, and
-  safety checks to use the new path.
+- Move the config field to `tracking.<tracker>.create_issues` and update config
+  parsing, validation, layering, effective-config output, managed-config
+  writeback, and safety checks to use the provider-specific path.
 - Update every code, workflow, agent, example, and documentation reference to
-  `create_issues` so configuration paths use `tracking.create_issues`.
+  `create_issues` so configuration paths use
+  `tracking.github.create_issues`, `tracking.gitlab.create_issues`, or
+  `tracking.jira.create_issues` as appropriate.
 - Preserve existing `allow_targets` behavior and defaults during the move.
 - Complete this prep work before #9035 and the Jira-specific follow-up work.
 
@@ -256,7 +263,7 @@ reference #9035 where they depend on the config contract.
   `poll.query`.
 - Represent GitHub and GitLab as provider keys under `tracking`, replacing the
   current scalar `tracker` value.
-- Place `create_issues` alongside the provider key under `tracking`.
+- Place Jira's `create_issues` settings inside `tracking.jira`.
 - Treat `project` as the sole Jira project for the repository, used by polling
   and Jira issue commands.
 - Define `poll.enabled: true` to install the Jira poller through
