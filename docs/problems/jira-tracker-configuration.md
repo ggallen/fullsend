@@ -19,8 +19,8 @@ Tracker-routed status updates are specified by
 - `fullsend poll --input-driver jira-poll` accepts Jira URL, project, and JQL
   through flags, with URL and repository fallbacks from environment variables.
   The Jira client currently uses Basic authentication and requires
-  `JIRA_USER_EMAIL` with `JIRA_TOKEN`; this legacy behavior is removed by the
-  proposed token-only design.
+  `JIRA_USER_EMAIL` with `JIRA_TOKEN`; the proposed design replaces these
+  legacy inputs with the repo token secret and optional email secret.
 - `fullsend issues` reads the default tracker from config. Jira URL, email, and
   token still come from flags or `JIRA_BASE_URL`, `JIRA_USER_EMAIL`, and
   `JIRA_TOKEN`. The project is currently required on each command.
@@ -69,10 +69,17 @@ the command line with `--jira-token`. Install stores it as the repo secret
 and replace it when a new token is supplied. The token is not written to
 either config file or printed in command output.
 
+For bot-user authentication, optionally pass `--jira-email` to
+`fullsend repos install`. Install stores it as the repo secret
+`FULLSEND_JIRA_EMAIL`; later runs reuse that secret when the flag is omitted
+and replace it when a new email is supplied. If the secret is absent, Fullsend
+uses the service-account authentication path. Remove the repo secret to switch
+an existing installation back to service-account auth. The email is never
+written to either config file or printed in command output.
+
 GitHub and GitLab keep their current scalar form (`tracker: github` and
 `tracker: gitlab`). Credentials stay out of `config.yaml` and `repos.yaml`.
-The Jira token and any account email are runtime credentials, not config
-fields. The optional `FULLSEND_JIRA_EMAIL` behavior is described below.
+Jira authentication uses runtime repo secrets rather than config fields.
 
 When this mapping is used in `repos.yaml`, it belongs under the existing
 managed `config` key. Layered configuration should allow an installation-level
@@ -104,17 +111,27 @@ only the gateway base and must be a compatible gateway or proxy that supports
 that path. Cloud ID discovery always uses `base_url`, regardless of the
 `api_url` override.
 
-The initial choice is a service account because it is a non-person identity
-intended for services and integrations, and its scoped token supports the
-token-only Bearer path. A regular Atlassian user account designated as a bot
-uses the account-token flow documented with Basic authentication and an email
-plus token ([regular account token docs](https://support.atlassian.com/atlassian-account/docs/manage-api-tokens-for-your-atlassian-account/)).
-If bot-user auth is supported, an optional `FULLSEND_JIRA_EMAIL` runtime
-value can select that Basic-auth mode: when set, use the email and
-`FULLSEND_JIRA_TOKEN`; when absent, use Bearer auth and require a
-service-account token. This selects the auth mode, not the account type; a
-service-account token can also use Basic auth. The email remains outside
-`config.yaml` and `repos.yaml`.
+Both authentication modes use the scoped API gateway URL above. The email
+secret changes the authorization header: bot-user mode sends Basic
+authentication with the email and token; service-account mode sends the token
+as Bearer. `base_url` remains for browse links and Cloud ID discovery rather
+than REST API requests.
+
+The service-account path is the default because a service account is a
+non-person identity intended for services and integrations, and its scoped
+token supports Bearer auth without an email. For a regular Atlassian user
+account designated as a bot, install can store its email as the optional
+`FULLSEND_JIRA_EMAIL` repo secret. When that secret exists, Fullsend uses Basic
+authentication with the email and a scoped user API token. When it is absent,
+Fullsend uses Bearer authentication with a service-account token. Atlassian
+documents the [scoped user-token flow](https://support.atlassian.com/atlassian-account/docs/manage-api-tokens-for-your-atlassian-account/).
+
+The email secret explicitly selects the authentication mode; install cannot
+infer bot versus service-account identity from the token string. Atlassian
+[notes that token types cannot be distinguished from the token alone](https://support.atlassian.com/atlassian-cloud/kb/401-unauthorized-error-when-service-account-accesses-jira-or-confluence-api/).
+A service-account token can also use Basic auth, so the email secret expresses
+the chosen mode rather than verifying the account type. The email remains
+outside `config.yaml` and `repos.yaml`.
 
 Service-account tokens also need rotation. Atlassian sets their expiration to
 one year by default and allows an expiration from 1 to 365 days. User API
@@ -131,19 +148,19 @@ token after the replacement is active.
 Atlassian documents [service-account token expiry](https://support.atlassian.com/user-management/docs/manage-api-tokens-for-service-accounts/)
 and [user API token expiration policies](https://support.atlassian.com/security-and-access-policies/docs/authentication-policy-settings-for-your-organizations/).
 
-Agent scripts can use the same token and, when configured, the email for Basic
-auth. A script that calls Jira directly uses the selected auth mode and API
-gateway URL; alternatively, a script can call `fullsend issues` and let
-Fullsend load the connection from config. The explicit runner-secret handoff
-must make the token and optional email available only to scripts that request
-them. The built-in agent credential provider must support the selected
-scoped-token flow without exposing credentials to the model, and its egress
-profile must allow `api.atlassian.com`.
+Agent scripts can use the same token and, in bot-user mode, the email for
+Basic auth. A script that calls Jira directly uses the selected auth mode and
+API gateway URL; alternatively, a script can call `fullsend issues` and let
+Fullsend load the connection from config. Pass the token only to host-side
+scripts that need Jira access. Pass the email to all agent pre/post scripts
+only when the `FULLSEND_JIRA_EMAIL` repo secret exists. The built-in agent
+credential provider must support both scoped-token modes without exposing
+credentials to the model, and its egress profile must allow `api.atlassian.com`.
 
-Direct agent scripts use the selected auth mode, the same token, and the
-gateway URL. In Basic mode they also need the configured runtime email.
+Direct agent scripts use the selected auth mode, token, and gateway URL. In
+bot-user mode they also receive the email when the repo secret exists.
 Alternatively, they can call `fullsend issues` and let Fullsend load connection
-settings from config. In either case, `api_url` must be a compatible API
+settings from config. In either mode, `api_url` must be a compatible API
 gateway base URL.
 
 ## Poll query composition
@@ -161,18 +178,18 @@ The parentheses preserve the configured predicate as a unit. If the query has
 a final `ORDER BY` clause, that clause remains after the closing parenthesis.
 The poll command reads URL, project, enabled state, and query from config. Its
 remaining command-line inputs are operational values such as `--target-repo`,
-`--output`, and `--fullsend-dir`. `FULLSEND_JIRA_TOKEN` is required. If
-bot-user auth is supported and `FULLSEND_JIRA_EMAIL` is set, the poller uses
-Basic auth; otherwise it uses Bearer auth with a service-account token.
+`--output`, and `--fullsend-dir`. `FULLSEND_JIRA_TOKEN` is required. When
+`FULLSEND_JIRA_EMAIL` exists, the poller uses Basic auth with the scoped
+bot-user token; otherwise it uses Bearer auth with the service-account token.
 
 ## Implementation direction
 
 Use one scoped Jira token and the API gateway for all Fullsend Jira access,
 including the poller, `fullsend issues`, run-status updates, reconciliation,
-and agent scripts. If bot-user auth is supported, use
-`FULLSEND_JIRA_EMAIL` to select Basic auth with that email and
-`FULLSEND_JIRA_TOKEN`; when it is absent, use Bearer auth and require a
-service-account token. Neither the token nor email is stored in config files.
+and agent scripts. When `FULLSEND_JIRA_EMAIL` exists, use Basic auth with that
+email and `FULLSEND_JIRA_TOKEN`; when it is absent, use Bearer auth and require
+a service-account token. Neither the token nor email is stored in config
+files.
 
 Agent scripts should call `fullsend issues` when its command surface covers the
 operation. For other Jira operations, scripts may call the REST API directly
@@ -224,9 +241,9 @@ where it depends on the config contract.
 - Replace the stored token when `--jira-token` is supplied on a later install,
   so an operator can rotate an expiring token; reuse the stored token when the
   flag is omitted.
-- If bot-user auth is supported, thread optional `FULLSEND_JIRA_EMAIL` from
-  the repository runtime into Fullsend-managed Jira workflows when set; keep
-  it out of config files.
+- Store `FULLSEND_JIRA_EMAIL` as a repo secret when `--jira-email` is supplied;
+  reuse it when the flag is omitted and remove it to switch to service-account
+  auth.
 - Never persist the token to config or print it.
 - Keep the operation idempotent and leave unrelated repository files alone.
 - Link this issue to #8906 and #9035; the schema issue defines the setting this
@@ -238,8 +255,8 @@ where it depends on the config contract.
 - Resolve and cache Cloud ID from the configured `base_url` tenant-info
   endpoint.
 - Use Bearer auth with `FULLSEND_JIRA_TOKEN` when `FULLSEND_JIRA_EMAIL` is
-  absent. If bot-user auth is supported, use Basic auth with the email and
-  token when it is set.
+  absent. When it exists, use Basic auth with the email and scoped token. Both
+  modes use the scoped API gateway URL.
 - Preserve `base_url` for browse links and validate both configured URLs.
 - Cover the error paths for Cloud ID lookup, invalid URLs, and API failures.
 
@@ -247,9 +264,9 @@ where it depends on the config contract.
 
 - Load `tracker.jira` settings instead of Jira URL, project, and JQL flags or
   environment fallbacks.
-- Read `FULLSEND_JIRA_TOKEN` from the runtime environment. If bot-user auth is
-  supported, use `FULLSEND_JIRA_EMAIL` when set to select Basic authentication;
-  otherwise use Bearer auth with a service-account token.
+- Read `FULLSEND_JIRA_TOKEN` from the runtime environment. When
+  `FULLSEND_JIRA_EMAIL` exists, use Basic authentication with the bot-user
+  token; otherwise use Bearer authentication with a service-account token.
 - Honor `poll.enabled` and use the configured project and query.
 - Always compose `project = PROJ AND (query)` and leave a final `ORDER BY`
   clause outside the parentheses.
@@ -263,18 +280,19 @@ where it depends on the config contract.
   repository's Jira issue commands; do not treat it as a fallback or expose a
   per-command Jira project override.
 - Migrate `fullsend run` Jira status updates and `reconcile-status` to config
-  plus `FULLSEND_JIRA_TOKEN`. If bot-user auth is supported, also use the
-  optional `FULLSEND_JIRA_EMAIL` auth-mode selector.
-- Remove or deprecate the Jira email/URL flags and legacy environment names
-  consistently.
+  plus `FULLSEND_JIRA_TOKEN` and the optional `FULLSEND_JIRA_EMAIL` auth-mode
+  selector.
+- Remove or deprecate legacy Jira email/URL flags and environment names.
+- Keep `--jira-email` as an optional `fullsend repos install` input for setting
+  the `FULLSEND_JIRA_EMAIL` repo secret.
 
 ### Proposed: migrate agent Jira access and secret delivery
 
 - Update the built-in `atlassian-cloud` credential provider for the selected
   Jira auth mode and add `api.atlassian.com` to its network profile.
 - Update reusable workflow secret declarations and token threading.
-- If bot-user auth is supported, thread optional `FULLSEND_JIRA_EMAIL` to Jira
-  workflows and explicitly selected host-side scripts when it is set.
+- Pass `FULLSEND_JIRA_EMAIL` to Jira workflows only when the repo secret exists.
+- Pass the email to all agent pre/post scripts only when the secret exists.
 - Update direct script examples to use the selected gateway auth mode, or show
   `fullsend issues` as the config-aware option.
 - Update the Jira integration, issue-command, custom-poller, BYO-agent,
@@ -282,32 +300,18 @@ where it depends on the config contract.
 - Preserve explicit secret selection so a Jira token is not inherited by every
   host-side script or exposed to the sandboxed model.
 
-## Open question
-
-- Should Fullsend support only scoped service-account tokens with Bearer auth,
-  or also regular Jira bot-user tokens? If both are supported, the proposed
-  selector is `FULLSEND_JIRA_EMAIL`: when set, use Basic auth with that email
-  and `FULLSEND_JIRA_TOKEN`; when absent, use Bearer auth and require a
-  service-account token. The email stays outside `config.yaml` and
-  `repos.yaml` and must be supplied at runtime. This broadens compatibility
-  while adding an auth mode and email delivery to workflows and selected
-  scripts. The variable selects auth mode by convention; it does not verify
-  account type, since service-account tokens can also use Basic auth.
-
 ## Secret delivery requirement
 
 - Keep the repository secret named `FULLSEND_JIRA_TOKEN`.
-- Fullsend-managed workflows may pass that token only to host-side scripts
-  explicitly configured to need Jira access. Since the runner-secret contract
-  reserves the `FULLSEND_` namespace, expose the token to a selected script
-  under a non-reserved environment name, such as `JIRA_API_TOKEN`, rather than
-  through the generic runner-secret bundle.
-- If bot-user auth is supported, treat `FULLSEND_JIRA_EMAIL` as a
-  Fullsend-managed runtime value and pass it only to Jira workflows and
-  explicitly selected host-side scripts; do not route it through the generic
-  runner-secret bundle.
-- Do not make the token available by default to other scripts or to the
-  sandboxed model.
+- Store the optional bot email as the repo secret `FULLSEND_JIRA_EMAIL` only
+  when `--jira-email` is supplied. Jira workflows receive the email secret
+  only when it exists; do not pass an empty value when it is absent.
+- Pass the token only to Jira workflows and host-side scripts that need Jira
+  access. Pass the email to all agent pre/post scripts only when its repo
+  secret exists. Expose these values to scripts under non-reserved names such
+  as `JIRA_API_TOKEN` and `JIRA_EMAIL`; do not use the generic runner-secret
+  bundle for `FULLSEND_` names.
+- Do not expose either credential to the sandboxed model.
 
 ## References
 
