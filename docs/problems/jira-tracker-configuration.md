@@ -64,8 +64,8 @@ is nested in that block. GitHub uses `orgs` and `repos`; GitLab uses `groups`
 and `repos`; Jira uses `projects`. Repository values use GitHub `owner/repo`
 or GitLab full project paths, while Jira values are project keys.
 
-For example, GitHub and GitLab can grant access at both the broader org/group
-level and to individual repositories. Jira has only project targets:
+For a GitHub repository, targets can include both organizations and individual
+repositories:
 
 ```yaml
 tracking:
@@ -73,14 +73,23 @@ tracking:
     allowed_targets:
       orgs: [fullsend-ai]
       repos: [another-org/special-repo]
+```
+
+For a GitLab repository, targets can include both groups and individual
+repositories:
+
+```yaml
+tracking:
   gitlab:
     allowed_targets:
       groups: [fullsend/team]
       repos: [fullsend/other/team-repo]
-  jira:
-    allowed_targets:
-      projects: [PROJ, OTHER]
 ```
+
+These scopes are additive: a destination is allowed when it matches either a
+configured org/group or a configured repository. Jira uses only
+`tracking.jira.allowed_targets.projects`, as shown in the Jira configuration
+above.
 
 `base_url` and `project` are required for the Jira mapping. `api_url` is
 optional and defaults to Atlassian's API gateway. `project` identifies the
