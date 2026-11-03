@@ -57,12 +57,12 @@ tracking:
       query: 'labels = "fullsend" AND statusCategory != Done ORDER BY updated DESC'
 ```
 
-Exactly one provider key (`github`, `gitlab`, or `jira`) selects the repository's
-tracker. GitHub and GitLab can initially use empty mappings; Jira has
-provider-specific settings. The selected provider's `allowed_targets` mapping
-is nested in that block. GitHub uses `orgs` and `repos`; GitLab uses `groups`
-and `repos`; Jira uses `projects`. Repository values use GitHub `owner/repo`
-or GitLab full project paths, while Jira values are project keys.
+At most one provider mapping (`github`, `gitlab`, or `jira`) may appear under
+`tracking`; config validation rejects multiple tracker selections. The selected
+provider's `allowed_targets` mapping is nested in that block. GitHub uses
+`orgs` and `repos`; GitLab uses `groups` and `repos`; Jira uses `projects`.
+Repository values use GitHub `owner/repo` or GitLab full project paths, while
+Jira values are project keys.
 
 For a GitHub repository, targets can include both organizations and individual
 repositories:
