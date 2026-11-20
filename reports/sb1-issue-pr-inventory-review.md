@@ -506,14 +506,6 @@ These were excluded by the spreadsheet and were not reassigned to an SB1 behavio
 7. **Keep agent behavior and output policy scoped to the agent.** Review depth, bot fast paths, effort-based promotion, outcome labels, and review comments need separate acceptance criteria in the agents repository; Fullsend owns shared routing and status contracts.
 8. **Before implementation, reconcile tracker labels on the ambiguous closures:** #7281/#7359 point at one another despite comments naming #7281 as canonical; #7493’s retro symptom was closed to the R11 branch-filter issue #7015; #8139 was closed to #6791 even though its title describes a human-gate-only case; #7284’s canceled-run comments are not the same output as stale “working” comments. The bucket table keeps these distinctions visible.
 
-## Apogee stage-gate proposal in this context
-
-Based on the proposal text supplied in the conversation, Apogee is a narrow **cross-stage prerequisite gate**: a code run waits until a triage result is accepted for the same chain. The harness pre-script is a sensible place for an agent-specific, stateful check because it runs before sandbox creation, and the existing Fullsend skip protocol can report that decision cleanly.
-
-I could not load the linked Apogee docs or GitLab demo through the available browser, so this assessment uses the pasted description rather than a source review. The linked [Fullsend PR #9264](https://github.com/fullsend-ai/fullsend/pull/9264) is a draft ADR about repository-owned recovery journals; it is not itself a merged implementation of the Apogee gate.
-
-That gate does not consolidate the SB1 policies. It would not by itself fix bot routing (#6791), false failure status (#7092), repeated review of the same SHA/diff (R9/R10), irrelevant shim events (R11/R16), duplicate output (R18/R22), or same-agent concurrency (R15). Treat it as an opt-in gate built on Fullsend’s shared pre-script and skip contracts, with the chain/receipt policy owned by the relevant agent or integration. Do not make the local state service a required dependency for every Fullsend dispatch path.
-
 ## Access and review limits
 
 - The full spreadsheet text was available in the request; no separate `.xlsx` or CSV file was attached.
