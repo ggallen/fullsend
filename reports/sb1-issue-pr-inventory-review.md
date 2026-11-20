@@ -521,3 +521,234 @@ These were excluded by the spreadsheet and were not reassigned to an SB1 behavio
 - [ADR 0072 — Pre-script skip signalling](../docs/ADRs/0072-pre-script-output-protocol.md): clean skip status before sandbox creation.
 - [ADR 0106 — Serialize runs and coalesce events](../docs/ADRs/0106-serialize-agent-runs-and-coalesce-subsequent-events.md): preserve active automatic run and retain at most one pending matching run.
 - [ADR 0144 — Reuse poll and entity-bound processes](../docs/ADRs/0144-reuse-poll-and-entity-bound-run-processes.md): updates execution reuse while retaining ADR 0106’s serialization key and invariant.
+
+## Recommended fix strategy: finish the shared dispatch migration
+
+### Short answer
+
+There is a broad solution for the repeated routing, skip, and coordination
+failures: finish the shared `fullsend dispatch` migration already described by
+[ADR 0061](../docs/ADRs/0061-harness-cel-dispatch.md), [ADR
+0098](../docs/ADRs/0098-entity-first-harness-evaluation.md), and the open
+cutover work in [#2902](https://github.com/fullsend-ai/fullsend/issues/2902).
+Use one dispatcher to authorize an event, evaluate each enabled agent's
+effective trigger, keep every valid match, and pass the resulting runs to one
+coordinator and one outcome reporter.
+
+That is a broad platform fix, not one universal rule. Each agent still needs
+its own policy: for example, what counts as useful retro work, whether a bot
+dependency PR gets a light review, and when review output may add a merge
+label. The shared system should give those policies one place and one contract
+to run through.
+
+```mermaid
+flowchart LR
+    A[GitHub, GitLab, or poll input] --> B[Normalize event and entity]
+    B --> C[Platform authorization]
+    C --> D[Evaluate each enabled harness rule]
+    D -->|no match| E[Record a clean skip]
+    D -->|one or more matches| F[Coordinate runs]
+    F --> G[Fresh pre-script check if needed]
+    G -->|skip| E
+    G -->|run| H[Launch sandbox and agent]
+    H --> I[Report one final outcome]
+```
+
+The dispatcher must not treat an authorization failure or missing state as an
+ordinary false trigger. A false trigger is a known skip; unavailable evidence
+may need a retry or a deferred result; a real configuration or execution error
+must remain an error.
+
+### Why this fixes a large swath
+
+The current repository already has important pieces, but they do not yet form
+one path:
+
+- The generic dispatcher authorizes events and evaluates registered harness
+  triggers, but it drops built-in GitHub matches because the older route job
+  still owns those agents
+  ([`core.go`](../internal/harnessdispatch/core.go#L60-L105)).
+- The GitHub route job still chooses a single stage and can fall back to Bash.
+  The current CEL rollout is opt-in per `agents[].trigger`; a built-in
+  `harness.trigger` does not replace the Bash route yet
+  ([`dispatch_route.go`](../internal/cli/dispatch_route.go#L21-L50),
+  [`reusable-dispatch.yml`](../.github/workflows/reusable-dispatch.yml#L762-L873),
+  [ADR 0162](../docs/ADRs/0162-agent-entries-may-carry-harness-overrides.md)).
+- GitLab has a separate hard-coded router. For example, it routes every
+  authorized closed change proposal to retro without checking whether a useful
+  agent stage ran
+  ([`router.go`](../internal/dispatch/router.go#L197-L213)).
+- Some predictable checks still happen after routing. The GitHub fix path can
+  send an unknown bot to `fix`, after which the eligibility script rejects it
+  for lacking `fullsend-fix`
+  ([route](../.github/workflows/reusable-dispatch.yml#L465-L485),
+  [eligibility script](../.github/scripts/check-fix-eligibility.sh#L67-L88)).
+- The GitHub stage concurrency groups still use
+  `cancel-in-progress: true`, which conflicts with the accepted policy to let
+  the active run finish and keep at most one newest pending run
+  ([workflow](../.github/workflows/reusable-dispatch.yml#L2065-L2068),
+  [ADR 0106](../docs/ADRs/0106-serialize-agent-runs-and-coalesce-subsequent-events.md)).
+
+The open [#2888](https://github.com/fullsend-ai/fullsend/issues/2888) and
+[#2902](https://github.com/fullsend-ai/fullsend/issues/2902) track this
+architectural migration. At the reviewed snapshot, #2902 still has remaining
+behavior baselines and trigger ports, including code, fix, and prioritize.
+This makes the migration the best home for the shared fix. It also means the
+migration is not complete merely because some agents already use CEL.
+
+### Contracts to make the migration complete
+
+1. **Normalize once.** Each forge adapter should turn its event into the shared
+   event and entity shapes. Keep forge-specific parsing at the adapter. Apply
+   the same rules to webhook, shim, polling, and manual entry points when they
+   represent the same automatic trigger.
+2. **Authorize before policy evaluation.** The platform checks who may trigger
+   which harness. A CEL trigger cannot grant permission. Use verified provider
+   identities for bots; do not treat a login suffix such as `[bot]` as proof.
+   [#8329](https://github.com/fullsend-ai/fullsend/issues/8329) tracks the
+   remaining bot-identity work identified in the reviewed snapshot.
+3. **Evaluate every enabled harness using one effective trigger.** Keep
+   agent-specific default triggers in the agents repository. A repository
+   override should replace that agent's default for that repository, with a
+   clear migration rule for existing `agents[].trigger` settings. It should
+   never create a second, competing route. Preserve the agent-enabled check,
+   platform authorization, manual invocation, and all valid matches when one
+   event fits several agents. Replace ADR 0162's temporary built-in routing
+   exception with a new ADR when the cutover settles the final precedence.
+4. **Keep only early filters that save work.** A generated shim may reject a
+   clearly irrelevant event before it allocates a runner. It should use the
+   same event definitions as the dispatcher. It must not become another owner
+   of agent eligibility. Remove the old Bash and Go routing decisions after
+   parity checks pass; do not run both systems for the same event.
+5. **Check known conditions before launching.** Put stable event and entity
+   rules in the shared dispatch decision so a known skip creates no sandbox.
+   Keep a pre-script check when it needs fresh state or data unavailable to the
+   adapter. Use the same skip contract and reason in either location. Do not
+   duplicate a rule in unrelated scripts that can drift apart.
+6. **Use distinct, recorded outcomes.** Record the selected harness, rule
+   version, input identity, decision, and reason. A known policy mismatch is a
+   successful skip; an incomplete read can be deferred; a genuine script,
+   configuration, or service error remains a failure. The pre-script protocol
+   already supports `skipped=true` or exit 78 and a reason
+   ([ADR 0072](../docs/ADRs/0072-pre-script-output-protocol.md)). The caller
+   must stop later steps, and one layer must own the user-facing notification.
+7. **Coordinate execution separately from eligibility.** Apply ADR 0106 to
+   each automatic path: keep active work running and coalesce later matching
+   events into at most one pending run for the same harness and entity. Add
+   durable completion receipts where a later identical event should not repeat
+   completed work. Coordination prevents overlap; it does not mean “run this
+   agent only once on this PR.”
+
+The override precedence in point 3 is a recommended target for a follow-up
+decision, not a claim about current behavior. Today ADR 0162 makes
+`agents[].trigger` an opt-in to a transitional CEL path for some built-ins and
+ignores their `harness.trigger` for routing. Document a compatibility window,
+warn on old settings, and test pinned and built-in harnesses before removing
+that behavior.
+
+### Which issue families the shared work covers
+
+| Shared change | Issue families it can cover | What still needs a separate rule or record |
+|---|---|---|
+| One authorized evaluator across forges and triggers | R3, R4, R6, R11, R12, R13, R16, R17, R26; predictable parts of R1/R2 | Bot/dependency policy, meaningful prior-agent activity, labels and branch rules still need explicit per-agent or repo-config predicates. |
+| Shared skip, defer, and error handling | R5, R18, and part of R22 | Each caller must stop subsequent jobs; one output owner must prevent duplicate comments. Errors and permission lookup failures need their own mapping. |
+| Preserve-active serialization and one pending run | R15 and rapid-event cases in R9 | This does not replace same-SHA, same-diff, completed-retro, or explicit-rerun checks. |
+| Durable input and completion receipts | R1, R8, R9, R10, R14, and R20 when required state is available | Each receipt needs a domain-specific key and expiration/reset rule. A reviewed SHA differs from an unchanged diff fingerprint or an existing coder PR. |
+| Shared normalized state for agent rules | R1, R2, R7, R14, R20, and R24 | Related-PR chains, dependency classification, already-existing work, and human approval each need a defined fact and policy. |
+
+This strategy can remove repeated routing and runner-allocation code across a
+large part of the spreadsheet. It cannot decide the meaning of “meaningful
+agent involvement,” “safe bot PR,” “same work,” or “ready to merge” by itself.
+Those definitions need separate acceptance criteria and owners.
+
+### Keep the genuinely separate fixes separate
+
+The spreadsheet already identifies families that a dispatch migration will
+not settle:
+
+- **Review behavior (R2/R23):** decide whether dependency PRs get no review, a
+  fast review, or a lower-cost model. This belongs with the review agent and
+  needs examples for each policy.
+- **Retro meaning and related PRs (R1/R2/R7/R8):** define what prior agent
+  work counts, how review-only or no-finding work counts, and how companion,
+  backport, and cherry-pick chains share or suppress analysis. Record completed
+  retro work so later close events do not repeat it.
+- **Review deduplication (R9/R10):** use separate checks for the current
+  non-dismissed review of a head SHA, the effective diff against the base, and
+  a new event that carries no new work. Merged [#9275](https://github.com/fullsend-ai/fullsend/pull/9275)
+  covers a semantic-diff case, not every one of these keys.
+- **Existing work and human state (R20/R24/R26):** check for an existing coder
+  PR before dispatch; define what human approval or changes-requested state
+  does to fix and review; skip triage when the issue is already ready to code.
+- **Agent output and lifecycle policy (R14/R18/R22/R24):** keep readiness
+  labels, superseded-run output, skip comments, cancellation messages, and
+  human-gate nudges as explicit post-processing rules. A correct dispatch
+  decision does not guarantee correct output after a run.
+- **Effort-based auto-promotion (R19):** gate promotion to coding before
+  opening or assigning coding work. This is a triage-to-code policy, not a
+  generic review or dispatch filter.
+- **Review completion barriers (R15-B):** merge-queue entry must know which
+  review sources apply and wait for each one. A concurrency group alone cannot
+  prove that all sources finished.
+
+Keep these as separate agent or platform changes with their own acceptance
+criteria. Share the evaluation, authorization, skip, state, and reporting
+mechanisms underneath them.
+
+### How to use the PRs already in the inventory
+
+Treat existing PRs as implementations of narrow requirements, not as
+alternatives to the shared architecture:
+
+- Merged [Fullsend #8727](https://github.com/fullsend-ai/fullsend/pull/8727)
+  and [#8728](https://github.com/fullsend-ai/fullsend/pull/8728) address
+  authorization thresholds and multi-harness dispatch behavior needed by the
+  cutover. They do not remove the remaining routers.
+- Merged [Fullsend #9275](https://github.com/fullsend-ai/fullsend/pull/9275)
+  covers the semantic-diff review case described above.
+- Merged [agents #1783](https://github.com/fullsend-ai/agents/pull/1783)
+  uses the clean pre-script skip protocol for closed/merged reviews and
+  configured skipped authors. Reuse that contract for other expected skips.
+- Open [Fullsend #6994](https://github.com/fullsend-ai/fullsend/pull/6994)
+  is a narrow shim label filter. Open [Fullsend #7403](https://github.com/fullsend-ai/fullsend/pull/7403)
+  and [agents #1240](https://github.com/fullsend-ai/agents/pull/1240) address
+  one duplicate review handoff. Check whether the shared dispatch and receipt
+  rules make each redundant before merging or maintaining it separately.
+- Merged [Fullsend #2465](https://github.com/fullsend-ai/fullsend/pull/2465)
+  uses cancellation for stage concurrency. It does not implement ADR 0106's
+  preserve-active behavior, so update or replace it as part of that contract.
+
+### Suggested implementation order
+
+1. Turn the behavior buckets in this report into a parity matrix. For every
+   case, write the same event, relevant state, expected decision, expected
+   reason, whether a sandbox starts, and whether later events should repeat it.
+2. Finish the authorization baselines and CEL ports tracked by #2902. Define
+   one effective trigger and manual-run rule, preserve multi-agent matches,
+   and validate bot identities. Keep CEL as routing policy, never as an
+   authorization bypass.
+3. Compare the shared dispatcher with GitHub and GitLab in decision-only mode
+   using that matrix. Once the results match, route each forge through the
+   shared path and remove its duplicate router. Do not dispatch from both
+   paths during the comparison.
+4. Move predictable checks before sandbox creation. Leave only fresh-state
+   checks in pre-scripts. Convert expected rejections to clean skips and make
+   each caller stop after a skip. Keep transient unavailable state distinct
+   from a confirmed non-match.
+5. Implement ADR 0106 across every automatic path. Add receipts for completed
+   reviews, retros, fixes, and already-covered work using their correct keys.
+   Make an explicit manual rerun request bypass only the relevant completion
+   receipt, while retaining authorization and agent enablement.
+6. Implement the separate agent and post-processing rules from their own
+   buckets. Close or re-scope narrow PRs only after the shared change supplies
+   their required behavior or makes them unnecessary.
+7. Re-run the parity matrix on GitHub and GitLab and verify these outcomes:
+   known skips start no sandbox and succeed; uncertain state stays retryable;
+   true errors fail; matching events do not cancel active work; one latest
+   follow-up remains; and one decision produces at most one notification.
+
+This order uses the existing ADRs and merged PRs. It avoids implementing the
+same routing rule once in a shim, again in a workflow, and a third time in an
+agent pre-script. The remaining implementation work is to finish the shared
+cutover, add domain-specific facts and receipts, and keep the separate agent
+policies explicit.
